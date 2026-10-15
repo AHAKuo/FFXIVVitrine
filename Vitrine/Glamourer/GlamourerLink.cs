@@ -80,7 +80,11 @@ public sealed class GlamourerLink : IDisposable
     /// When Lamina holds the state locked, Glamourer answers InvalidKey; the call is then retried with Lamina's well-known
     /// key (<see cref="VitrineConstants.LaminaGlamourerKey"/>) so try-ons keep working alongside Lamina.
     /// </summary>
-    private static readonly byte[] NoStains = { 0, 0 };
+    /// <summary>
+    /// Two stain slots, 0 = no dye. A List (not byte[]): Dalamud serializes IPC arguments as JSON and a byte[] becomes a
+    /// base64 string Glamourer cannot read back as a byte list; a List serializes as a JSON array.
+    /// </summary>
+    private static readonly List<byte> NoStains = new() { 0, 0 };
 
     public GlamourerApiEc SetItem(int objectIndex, ApiEquipSlot slot, ulong itemId)
     {
