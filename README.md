@@ -13,7 +13,7 @@ Dump mods into Penumbra like a mad man; Vitrine keeps them findable.
 ## Features
 - **Mods tab:** a card grid of every mod, classified by category (outfits, accessories, hair, face, body, skin, animations, emotes, VFX, SFX, UI, minions, mounts, housing, NPCs), with search, category chips, sort and an on/off filter.
 - **Display photos:** taken from the mod folder when it has one, otherwise fetched once from the mod's page (its link-preview image) and cached.
-- **Details panel:** author, version, mod page, what the mod affects, its state in your collections, and the designs made from it.
+- **Details panel:** author, version, mod page, a collapsible list of what the mod affects (grouped by category; its open state is remembered), its state in your collections, and the designs made from it.
 - **Vitrine designs:** every mod gets an auto design with the baseline option settings you choose; variants keep the same mod with different options.
 - **Design cards:** every mod has a Baseline card (its settings) and any variants you add; each card has the same buttons.
   - **Preview:** a transient look. Enables the mod on you temporarily (Vitrine's own Penumbra key), equips the card's affected slots through Glamourer, applies hair / face entries that fit your character and plays the replaced emote. One preview at a time; click again, preview another card or close the window and it is gone.

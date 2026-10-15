@@ -24,6 +24,9 @@ public sealed class VitrineSettings
     /// <summary> Show mods without any affected items. </summary>
     public bool ShowUnsorted { get; set; } = true;
 
+    /// <summary> Whether the "Affects" list in the details panel is expanded. </summary>
+    public bool AffectsExpanded { get; set; }
+
     /// <summary> After a preview ends (End preview, Revert try-on, Clear all), ask Lamina to re-apply its design. Needs Lamina installed. </summary>
     public bool HandBackToLamina { get; set; } = true;
 

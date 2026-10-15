@@ -494,11 +494,7 @@ public sealed class VitrineWindow : Window, IDisposable
             ImGui.TextColored(Color(MutedText), string.Join(" · ", mod.Tags));
 
         ImGui.Spacing();
-        SectionLabel("AFFECTS");
-        if (mod.AffectedItems.Count == 0)
-            ImGui.TextColored(Color(MutedText), "Nothing identified (files only).");
-        else
-            DrawAffectedChips(mod.AffectedItems);
+        DrawAffectedList(mod.AffectedItems);
         DrawTryOnRow(mod);
 
         ImGui.Spacing();
@@ -602,64 +598,68 @@ public sealed class VitrineWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// Affected items as chips. Equippable items and emotes are clickable: click to equip or play just that one. Hair / face /
-    /// tail / ears entries are chips of their own: clickable when they fit your character, greyed out with a reason otherwise.
+    /// Affected items as a collapsible vertical list, grouped by category. Equippable items and emotes are clickable rows
+    /// (equip or play just that one); hair / face / tail / ears entries are clickable when they fit your character and greyed
+    /// out with the reason otherwise; everything else is listed as text. The open / closed state is remembered.
     /// </summary>
-    private void DrawAffectedChips(IReadOnlyList<AffectedItem> items)
+    private void DrawAffectedList(IReadOnlyList<AffectedItem> items)
     {
-        var scale       = ImGuiHelpers.GlobalScale;
-        var shown       = 0;
-        var groups      = items.GroupBy(i => i.Category).OrderBy(g => g.Key).ToList();
+        var count  = items.Count;
+        var groups = items.GroupBy(i => i.Category).OrderBy(g => g.Key).ToList();
+        var header = count == 0
+            ? "AFFECTS · nothing identified (files only)"
+            : $"AFFECTS · {count} item{(count == 1 ? string.Empty : "s")} · {string.Join(", ", groups.Select(g => $"{ModClassifier.Label(g.Key)} {g.Count()}"))}";
+
+        ImGui.SetNextItemOpen(_module.Settings.AffectsExpanded);
+        using (ImRaii.PushColor(ImGuiCol.Header, 0))
+        using (ImRaii.PushColor(ImGuiCol.HeaderHovered, CardBgHover))
+        using (ImRaii.PushColor(ImGuiCol.HeaderActive, CardBgHover))
+        using (ImRaii.PushColor(ImGuiCol.Text, MutedText))
+        {
+            var open = ImGui.CollapsingHeader(Ellipsis(header, ImGui.GetContentRegionAvail().X - 24 * ImGuiHelpers.GlobalScale) + "###affects");
+            if (open != _module.Settings.AffectsExpanded)
+            {
+                _module.Settings.AffectsExpanded = open;
+                _module.SaveSettings();
+            }
+
+            if (!open || count == 0)
+                return;
+        }
+
         var can         = _module.Preview.CanTryOn;
         var hasIdentity = _module.Preview.TryGetPlayerIdentity(out var clan, out var gender);
+        using var indent = ImRaii.PushIndent(8 * ImGuiHelpers.GlobalScale);
         foreach (var group in groups)
         {
             var clickable = ModClassifier.IsEquippable(group.Key) || group.Key == VitrineCategory.Emote;
-            var label     = ModClassifier.Label(group.Key);
-            if (!clickable)
-            {
-                var rest = new List<AffectedItem>();
-                foreach (var item in group)
-                {
-                    if (IsCustomizationCategory(group.Key) && CustomizationParser.TryParse(item.Name, out var entry) && entry.GlamourerKey is not null)
-                        DrawCustomizationChip(entry, can, hasIdentity, clan, gender, ref shown);
-                    else
-                        rest.Add(item);
-                }
-
-                if (rest.Count == 0)
-                    continue;
-
-                var names = rest.Select(i => i.Name).Take(2).ToList();
-                var extra = rest.Count - names.Count;
-                var text  = $"{label} · {string.Join(", ", names)}{(extra > 0 ? $" +{extra}" : string.Empty)}";
-                if (shown > 0 && ImGui.GetCursorPosX() + ImGui.CalcTextSize(text).X + 24 * scale < ImGui.GetWindowContentRegionMax().X)
-                    ImGui.SameLine();
-                using (ImRaii.PushColor(ImGuiCol.Button, ChipOffBg))
-                using (ImRaii.PushColor(ImGuiCol.ButtonHovered, ChipOffBg))
-                using (ImRaii.PushColor(ImGuiCol.ButtonActive, ChipOffBg))
-                    ImGui.SmallButton(text);
-                if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip(string.Join("\n", rest.Select(i => i.Name)));
-                shown++;
-                continue;
-            }
-
+            using var groupId = ImRaii.PushId((int)group.Key);
+            ImGui.TextColored(Color(MutedText), ModClassifier.Label(group.Key).ToUpperInvariant());
             foreach (var item in group)
             {
-                var text = $"{label} · {item.Name}";
-                if (shown > 0 && ImGui.GetCursorPosX() + ImGui.CalcTextSize(text).X + 24 * scale < ImGui.GetWindowContentRegionMax().X)
-                    ImGui.SameLine();
                 using var itemId = ImRaii.PushId(item.Name);
-                using (ImRaii.PushColor(ImGuiCol.Button, ChipOnBg))
+                if (clickable)
                 {
-                    if (ImGui.SmallButton(text))
-                        SetStatus(group.Key == VitrineCategory.Emote ? _module.Preview.PlayEmote(item.Name) : _module.Preview.TryOnItem(item.Name));
+                    using (ImRaii.PushColor(ImGuiCol.Button, ChipOnBg))
+                    {
+                        if (ImGui.SmallButton(item.Name))
+                            SetStatus(group.Key == VitrineCategory.Emote ? _module.Preview.PlayEmote(item.Name) : _module.Preview.TryOnItem(item.Name));
+                    }
+
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip(group.Key == VitrineCategory.Emote ? "Click to play this emote (if unlocked)." : "Click to equip through Glamourer.");
+                    continue;
                 }
 
-                if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip(group.Key == VitrineCategory.Emote ? "Click to play this emote (if unlocked)." : "Click to equip through Glamourer.");
-                shown++;
+                if (IsCustomizationCategory(group.Key) && CustomizationParser.TryParse(item.Name, out var entry) && entry.GlamourerKey is not null)
+                {
+                    DrawCustomizationRow(entry, can, hasIdentity, clan, gender);
+                    continue;
+                }
+
+                ImGui.PushTextWrapPos();
+                ImGui.TextColored(Color(ChipText), item.Name);
+                ImGui.PopTextWrapPos();
             }
         }
     }
@@ -668,16 +668,12 @@ public sealed class VitrineWindow : Window, IDisposable
         => category is VitrineCategory.Hair or VitrineCategory.Face or VitrineCategory.Tail or VitrineCategory.Ears
             or VitrineCategory.Body or VitrineCategory.Skin;
 
-    /// <summary> One hair / face / tail / ears entry: click applies it through Glamourer when it fits the character. </summary>
-    private void DrawCustomizationChip(CustomizationEntry entry, bool can, bool hasIdentity, int clan, int gender, ref int shown)
+    /// <summary> One hair / face / tail / ears row: click applies it through Glamourer when it fits the character. </summary>
+    private void DrawCustomizationRow(CustomizationEntry entry, bool can, bool hasIdentity, int clan, int gender)
     {
-        var scale   = ImGuiHelpers.GlobalScale;
         var fits    = hasIdentity && entry.Matches(clan, gender);
         var enabled = can && fits;
         var text    = $"{entry.ShortLabel} · {entry.RaceName} {entry.GenderName}";
-        if (shown > 0 && ImGui.GetCursorPosX() + ImGui.CalcTextSize(text).X + 24 * scale < ImGui.GetWindowContentRegionMax().X)
-            ImGui.SameLine();
-        using var itemId = ImRaii.PushId(entry.Name);
         using (ImRaii.PushColor(ImGuiCol.Button, enabled ? ChipOnBg : ChipOffBg))
         using (ImRaii.PushColor(ImGuiCol.Text, enabled ? ChipText : MutedText))
         using (ImRaii.Disabled(!enabled))
@@ -694,7 +690,6 @@ public sealed class VitrineWindow : Window, IDisposable
                     : entry.IsEyes
                         ? "Click to switch to this face through Glamourer (once, not saved). Pick a base eye colour in the TRY ON row to judge the pack."
                         : "Click to apply through Glamourer (once, not saved).");
-        shown++;
     }
 
     /// <summary> Eye colour swatches (right / left / both) for judging eye packs without opening Glamourer. </summary>
