@@ -1,4 +1,6 @@
+using Glamourer.Api.Enums;
 using Vitrine.Catalog;
+using Vitrine.TryOn;
 
 namespace Vitrine.Designs;
 
@@ -13,6 +15,9 @@ public sealed class DesignsFile
     public Dictionary<string, Baseline> Baselines { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public List<StoredVariant> Variants { get; set; } = new();
+
+    /// <summary> Mod directory → the design the user enabled through Vitrine (its settings are in the player's collection). </summary>
+    public Dictionary<string, Guid> Active { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary> Per-mod baseline: what the auto design applies. Null settings = Penumbra's defaults for the mod. </summary>
@@ -46,16 +51,19 @@ public sealed class VitrineDesignStore
 {
     private readonly string _path;
     private readonly Action<string> _logWarning;
+    private readonly IItemResolver? _resolver;
     private DesignsFile _file = new();
     private readonly Dictionary<Guid, VitrineDesign> _byId = new();
     private readonly Dictionary<string, VitrineDesign> _autoByMod = new(StringComparer.OrdinalIgnoreCase);
     private List<VitrineDesign> _designs = new();
     private IReadOnlyList<ModInformation> _mods = Array.Empty<ModInformation>();
 
-    public VitrineDesignStore(string path, Action<string> logWarning)
+    /// <param name="resolver"> Resolves affected-item names to game items so designs export their pieces; null = no pieces. </param>
+    public VitrineDesignStore(string path, Action<string> logWarning, IItemResolver? resolver = null)
     {
         _path       = path;
         _logWarning = logWarning;
+        _resolver   = resolver;
     }
 
     /// <summary> All designs: auto designs (sorted by name) followed by variants (sorted by name). </summary>
@@ -84,6 +92,21 @@ public sealed class VitrineDesignStore
     public Baseline? BaselineFor(string modDirectory)
         => _file.Baselines.GetValueOrDefault(modDirectory);
 
+    /// <summary> The design the user enabled for a mod through Vitrine, or null. </summary>
+    public Guid? ActiveDesignFor(string modDirectory)
+        => _file.Active.TryGetValue(modDirectory, out var id) ? id : null;
+
+    /// <summary> Records (or clears with null) which design is enabled for a mod and saves. </summary>
+    public void SetActiveDesign(string modDirectory, Guid? designId)
+    {
+        if (designId is { } id)
+            _file.Active[modDirectory] = id;
+        else
+            _file.Active.Remove(modDirectory);
+        Save();
+        Changed?.Invoke();
+    }
+
     /// <summary> Loads designs.json; a broken file is quarantined and an empty store is used. </summary>
     public void Load()
     {
@@ -97,6 +120,7 @@ public sealed class VitrineDesignStore
 
         _file = file ?? new DesignsFile();
         _file.Baselines = new Dictionary<string, Baseline>(_file.Baselines, StringComparer.OrdinalIgnoreCase);
+        _file.Active    = new Dictionary<string, Guid>(_file.Active, StringComparer.OrdinalIgnoreCase);
         Rebuild();
     }
 
@@ -212,6 +236,7 @@ public sealed class VitrineDesignStore
                 },
                 ApplyAction = CloneAction(baseline?.ApplyAction),
             };
+            design.Pieces = ResolvePieces(mod, design.ApplyAction);
             list.Add(design);
             _byId[design.Id]               = design;
             _autoByMod[mod.ModDirectory]   = design;
@@ -240,12 +265,25 @@ public sealed class VitrineDesignStore
                 },
                 ApplyAction = CloneAction(variant.ApplyAction),
             };
+            design.Pieces = ResolvePieces(_mods.FirstOrDefault(m => string.Equals(m.ModDirectory, variant.ModDirectory, StringComparison.OrdinalIgnoreCase)), design.ApplyAction);
             list.Add(design);
             _byId[design.Id] = design;
         }
 
         _designs = list;
         Changed?.Invoke();
+    }
+
+    /// <summary> The pieces a design equips, one per affected slot, from the mod's affected items. Null without a resolver or mod. </summary>
+    private Dictionary<ApiEquipSlot, ApplyPiece>? ResolvePieces(ModInformation? mod, ApplyAction? action)
+    {
+        if (_resolver is null || mod is null)
+            return null;
+
+        var result = new Dictionary<ApiEquipSlot, ApplyPiece>();
+        foreach (var item in ApplyPlanner.Plan(action, mod.AffectedItems, _resolver).Items)
+            result[item.Slot] = new ApplyPiece { ItemId = item.ItemId, ItemName = item.Name };
+        return result;
     }
 
     /// <summary> Deep copy so designs handed out never alias the stored file. </summary>

@@ -28,6 +28,7 @@ public sealed class PreviewService
     private readonly IPluginLog _log;
     private readonly LaminaHandBack _handBack;
     private readonly HashSet<string> _previewed = new(StringComparer.OrdinalIgnoreCase);
+    private VitrineDesign? _previewedDesign;
 
     public PreviewService(IPenumbraReader penumbra, GlamourerLink glamourer, ItemResolver items, EmotePlayer emotes,
         IClientState clientState, IObjectTable objects, IFramework framework, IPluginLog log,
@@ -48,6 +49,10 @@ public sealed class PreviewService
     public IReadOnlyCollection<string> PreviewedMods
         => _previewed;
 
+    /// <summary> The design currently previewed on the player, or null. Only one design is previewed at a time. </summary>
+    public Guid? PreviewedDesignId
+        => _previewedDesign?.Id;
+
     /// <summary> True when Glamourer is loaded and a logged-in player exists (framework thread only). </summary>
     public bool CanTryOn
         => _glamourer.Available && HasPlayer();
@@ -62,22 +67,60 @@ public sealed class PreviewService
 
     // ---- preview / apply -----------------------------------------------------------------------------------------
 
-    /// <summary> Enables the design's mods on the player, redraws, equips a full set, applies matching customizations and plays replaced emotes. </summary>
+    /// <summary>
+    /// Previews a design: a previous preview is ended first (one at a time), then the design's mods are enabled on the
+    /// player temporarily, the player is redrawn, the design's pieces (its affected slots) are equipped, fitting hair / face
+    /// entries applied and the replaced emote played. Previews are transient: <see cref="EndPreview"/>, another preview,
+    /// or closing the window undoes them.
+    /// </summary>
     public string PreviewDesign(VitrineDesign design, ModInformation? info)
     {
+        if (!_penumbra.Available)
+            return "Penumbra is not available.";
+        if (!HasPlayer())
+            return "No character to preview on.";
+
+        if (_previewedDesign is { } previous && previous.Id != design.Id)
+            EndPreviewCore(previous);
+
         if (EnableMods(design) is { } error)
             return error;
 
+        _previewedDesign = design;
         _penumbra.RedrawObject(VitrineConstants.LocalPlayerIndex);
-        var message = new StringBuilder("Mod enabled on you and redrawn.");
+        var message = new StringBuilder("Previewing: mod enabled on you and redrawn.");
         if (info is not null)
         {
-            Append(message, TryOnFullSet(info, quiet: true));
+            Append(message, EquipPieces(design, info));
             Append(message, TryOnCustomizations(info, quiet: true));
             Append(message, PlayEmotes(info));
         }
 
         return message.ToString();
+    }
+
+    /// <summary> Equips the design's pieces (its affected slots, one piece each). Empty message when there is nothing to equip. </summary>
+    private string EquipPieces(VitrineDesign design, ModInformation info)
+    {
+        if (!_glamourer.Available)
+            return "Glamourer not loaded: pieces not equipped.";
+
+        var plan = ApplyPlanner.Plan(design.ApplyAction, info.AffectedItems, _items);
+        if (plan.Items.Count == 0)
+            return string.Empty;
+
+        var equipped = 0;
+        GlamourerApiEc? lastError = null;
+        foreach (var item in plan.Items)
+        {
+            var code = _glamourer.SetItem(VitrineConstants.LocalPlayerIndex, item.Slot, item.ItemId);
+            if (code is GlamourerApiEc.Success or GlamourerApiEc.NothingDone)
+                equipped++;
+            else
+                lastError = code;
+        }
+
+        return $"Equipped {equipped} of {plan.Items.Count} piece(s){(lastError is { } e ? $" (Glamourer: {e})" : string.Empty)}.";
     }
 
     /// <summary>
@@ -159,6 +202,13 @@ public sealed class PreviewService
         if (!_penumbra.Available)
             return "Penumbra is not available.";
 
+        var error = EndPreviewCore(design);
+        return _handBack.Append(error is { } e ? $"Preview ended (Penumbra returned {e})" : "Preview ended");
+    }
+
+    /// <summary> Removes the design's preview settings and reverts Glamourer; no Lamina hand-back. Returns Penumbra's error, if any. </summary>
+    private PenumbraApiEc? EndPreviewCore(VitrineDesign design)
+    {
         PenumbraApiEc? error = null;
         foreach (var mod in design.Mods)
         {
@@ -168,11 +218,27 @@ public sealed class PreviewService
             _previewed.Remove(mod.ModDirectory);
         }
 
+        if (_previewedDesign?.Id == design.Id)
+            _previewedDesign = null;
         if (_glamourer.Available && HasPlayer())
             _glamourer.RevertToAutomation(VitrineConstants.LocalPlayerIndex);
         _penumbra.RedrawObject(VitrineConstants.LocalPlayerIndex);
+        return error;
+    }
 
-        return _handBack.Append(error is { } e ? $"Preview ended (Penumbra returned {e})" : "Preview ended");
+    /// <summary>
+    /// Ends whatever is previewed (window close, unload): every Vitrine preview setting removed, Glamourer reverted,
+    /// redraw, Lamina hand-back. Empty message when nothing was previewed.
+    /// </summary>
+    public string EndAllPreviews()
+    {
+        if (_previewedDesign is null && _previewed.Count == 0)
+            return string.Empty;
+
+        _previewedDesign = null;
+        if (_glamourer.Available && HasPlayer())
+            _glamourer.RevertToAutomation(VitrineConstants.LocalPlayerIndex);
+        return ClearAllPreviews();
     }
 
     /// <summary> Removes a mod's preview setting from the player and redraws. Gear try-ons are left alone; see <see cref="EndPreview"/>. </summary>
@@ -195,6 +261,7 @@ public sealed class PreviewService
 
         var code = (PenumbraApiEc)_penumbra.RemoveAllTemporaryModSettingsPlayer(VitrineConstants.LocalPlayerIndex, VitrineConstants.TemporaryKey);
         _previewed.Clear();
+        _previewedDesign = null;
         if (redraw)
             _penumbra.RedrawObject(VitrineConstants.LocalPlayerIndex);
         return _handBack.Append(code is PenumbraApiEc.Success or PenumbraApiEc.NothingChanged ? "All previews removed" : $"Penumbra returned {code}");

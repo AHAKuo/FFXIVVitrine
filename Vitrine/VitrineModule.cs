@@ -50,7 +50,8 @@ public sealed class VitrineModule : IDisposable
         Glamourer   = new GlamourerLink(pi, log);
         Lamina      = new LaminaLink(pi, log);
         Catalog     = new ModCatalog(Reader, Path.Combine(dataDirectory, "mods.json"), m => log.Warning(m), m => log.Debug(m));
-        DesignStore = new VitrineDesignStore(Path.Combine(dataDirectory, "designs.json"), m => log.Warning(m));
+        var items   = new ItemResolver(data, log);
+        DesignStore = new VitrineDesignStore(Path.Combine(dataDirectory, "designs.json"), m => log.Warning(m), items);
         Photos      = new ModPhotoService(
             Path.Combine(dataDirectory, "photos"),
             new HttpPhotoHttp(),
@@ -59,7 +60,7 @@ public sealed class VitrineModule : IDisposable
             m => log.Warning(m),
             m => log.Debug(m));
         EyeColors = new EyeColorTable(data, log);
-        Preview = new PreviewService(Reader, Glamourer, new ItemResolver(data, log), new EmotePlayer(data, condition, clientState, log),
+        Preview = new PreviewService(Reader, Glamourer, items, new EmotePlayer(data, condition, clientState, log),
             clientState, objects, framework, log, Lamina, () => Settings.HandBackToLamina);
 
         Catalog.LoadCache();
@@ -230,6 +231,82 @@ public sealed class VitrineModule : IDisposable
         return message;
     }
 
+    /// <summary> Ends whatever is previewed (window close). </summary>
+    public string EndAllPreviews()
+    {
+        var message = Preview.EndAllPreviews();
+        if (message.Length > 0)
+            RequestCollectionRefresh();
+        return message;
+    }
+
+    // ---- enable / disable ----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Enables the design's mod in the player's collection with the design's priority and option settings, permanently
+    /// (as if ticked in Penumbra), and records the design as the mod's active one. Enabling another design of the same mod
+    /// switches the settings over.
+    /// </summary>
+    public string EnableDesign(VitrineDesign design)
+    {
+        if (!Reader.Available)
+            return "Penumbra is not available.";
+        if (design.Mods.Count == 0)
+            return "This design has no mod.";
+        if (Reader.GetCollectionForObject(VitrineConstants.LocalPlayerIndex) is not { } collection)
+            return "Your character has no collection assigned.";
+
+        var mod  = design.Mods[0];
+        var code = (global::Penumbra.Api.Enums.PenumbraApiEc)Reader.SetModEnabled(collection.Id, mod.ModDirectory, true);
+        if (!Ok(code))
+            return $"Penumbra returned {code} enabling {mod.ModName}.";
+
+        var problems = new List<string>();
+        code = (global::Penumbra.Api.Enums.PenumbraApiEc)Reader.SetModPriority(collection.Id, mod.ModDirectory, mod.Priority);
+        if (!Ok(code))
+            problems.Add($"priority: {code}");
+        if (mod.Settings is not null)
+            foreach (var (group, options) in mod.Settings)
+            {
+                code = (global::Penumbra.Api.Enums.PenumbraApiEc)Reader.SetModSettings(collection.Id, mod.ModDirectory, group, options);
+                if (!Ok(code))
+                    problems.Add($"{group}: {code}");
+            }
+
+        DesignStore.SetActiveDesign(mod.ModDirectory, design.Id);
+        Reader.RedrawObject(VitrineConstants.LocalPlayerIndex);
+        RequestCollectionRefresh();
+        return problems.Count == 0
+            ? $"{design.Name} enabled in {collection.Name}."
+            : $"{design.Name} enabled in {collection.Name}; Penumbra refused {string.Join(", ", problems)}.";
+    }
+
+    /// <summary> Disables the design's mod in the player's collection and clears the active design. </summary>
+    public string DisableDesign(VitrineDesign design)
+    {
+        if (!Reader.Available)
+            return "Penumbra is not available.";
+        if (design.Mods.Count == 0)
+            return "This design has no mod.";
+        if (Reader.GetCollectionForObject(VitrineConstants.LocalPlayerIndex) is not { } collection)
+            return "Your character has no collection assigned.";
+
+        var mod  = design.Mods[0];
+        var code = (global::Penumbra.Api.Enums.PenumbraApiEc)Reader.SetModEnabled(collection.Id, mod.ModDirectory, false);
+        DesignStore.SetActiveDesign(mod.ModDirectory, null);
+        Reader.RedrawObject(VitrineConstants.LocalPlayerIndex);
+        RequestCollectionRefresh();
+        return Ok(code) ? $"{mod.ModName} disabled in {collection.Name}." : $"Penumbra returned {code} disabling {mod.ModName}.";
+    }
+
+    /// <summary> True when the design is the mod's active one and the mod is enabled in the player's collection. </summary>
+    public bool IsActive(VitrineDesign design, ModInformation mod, Guid? playerCollection)
+        => DesignStore.ActiveDesignFor(mod.ModDirectory) == design.Id
+        && playerCollection is { } id && mod.PerCollection.TryGetValue(id, out var state) && state.Enabled;
+
+    private static bool Ok(global::Penumbra.Api.Enums.PenumbraApiEc code)
+        => code is global::Penumbra.Api.Enums.PenumbraApiEc.Success or global::Penumbra.Api.Enums.PenumbraApiEc.NothingChanged;
+
     // ---- internals -----------------------------------------------------------------------------------------------
 
     private void OnUpdate(IFramework framework)
@@ -288,8 +365,7 @@ public sealed class VitrineModule : IDisposable
         _framework.Update -= OnUpdate;
         try
         {
-            if (Preview.PreviewedMods.Count > 0)
-                Preview.ClearAllPreviews();
+            Preview.EndAllPreviews();
         }
         catch (Exception ex)
         {

@@ -33,6 +33,9 @@ public sealed class PenumbraReader : IPenumbraReader
     private readonly RemoveTemporaryModSettingsPlayer    _removeTemporaryModSettings;
     private readonly RemoveAllTemporaryModSettingsPlayer _removeAllTemporaryModSettings;
     private readonly RedrawObject                        _redrawObject;
+    private readonly TrySetMod                           _trySetMod;
+    private readonly TrySetModPriority                   _trySetModPriority;
+    private readonly TrySetModSettings                   _trySetModSettings;
     private readonly ModManagerWrapper _modManager = new();
 
     private readonly IDisposable _modAdded;
@@ -64,6 +67,9 @@ public sealed class PenumbraReader : IPenumbraReader
         _removeTemporaryModSettings    = new RemoveTemporaryModSettingsPlayer(pi);
         _removeAllTemporaryModSettings = new RemoveAllTemporaryModSettingsPlayer(pi);
         _redrawObject                  = new RedrawObject(pi);
+        _trySetMod                     = new TrySetMod(pi);
+        _trySetModPriority             = new TrySetModPriority(pi);
+        _trySetModSettings             = new TrySetModSettings(pi);
 
         _modAdded    = ModAddedEvent.Subscriber(pi, dir => ModAdded?.Invoke(dir));
         _modDeleted  = ModDeletedEvent.Subscriber(pi, dir => ModDeleted?.Invoke(dir));
@@ -251,6 +257,18 @@ public sealed class PenumbraReader : IPenumbraReader
     /// <inheritdoc/>
     public void RedrawObject(int objectIndex)
         => Call(() => { _redrawObject.Invoke(objectIndex); return 0; }, 0, nameof(RedrawObject));
+
+    /// <inheritdoc/>
+    public int SetModEnabled(Guid collectionId, string modDirectory, bool enabled)
+        => Call(() => (int)_trySetMod.Invoke(collectionId, modDirectory, enabled), (int)PenumbraApiEc.UnknownError, nameof(SetModEnabled));
+
+    /// <inheritdoc/>
+    public int SetModPriority(Guid collectionId, string modDirectory, int priority)
+        => Call(() => (int)_trySetModPriority.Invoke(collectionId, modDirectory, priority), (int)PenumbraApiEc.UnknownError, nameof(SetModPriority));
+
+    /// <inheritdoc/>
+    public int SetModSettings(Guid collectionId, string modDirectory, string optionGroup, IReadOnlyList<string> options)
+        => Call(() => (int)_trySetModSettings.Invoke(collectionId, modDirectory, optionGroup, options), (int)PenumbraApiEc.UnknownError, nameof(SetModSettings));
 
     private T Call<T>(Func<T> call, T fallback, string what)
     {

@@ -76,6 +76,15 @@ public sealed class FakePenumbraReader : IPenumbraReader
     /// <summary> Object indices redrawn through the fake. </summary>
     public List<int> Redraws { get; } = new();
 
+    public int SetModEnabled(Guid collectionId, string modDirectory, bool enabled)
+        => 0;
+
+    public int SetModPriority(Guid collectionId, string modDirectory, int priority)
+        => 0;
+
+    public int SetModSettings(Guid collectionId, string modDirectory, string optionGroup, IReadOnlyList<string> options)
+        => 0;
+
     public void RedrawObject(int objectIndex)
         => Redraws.Add(objectIndex);
 

@@ -6,15 +6,15 @@ enums as strings) so both plugins can evolve independently.
 
 | Label | Shape | Meaning |
 |---|---|---|
-| `Vitrine.ApiVersion` | `Func<(int Major, int Minor)>` | `(1, 1)`. Major changes break the contract; minor additions are marked below. |
+| `Vitrine.ApiVersion` | `Func<(int Major, int Minor)>` | `(1, 2)`. Major changes break the contract; minor additions are marked below. |
 | `Vitrine.Ready` | `Action` (event) | Raised after Vitrine finished loading and the IPC is usable. |
 | `Vitrine.Disposed` | `Action` (event) | Raised when Vitrine is unloading. |
 | `Vitrine.GetDesigns` | `Func<string>` | JSON array of designs (see below), stable order. Empty array when Penumbra is missing. |
 | `Vitrine.GetDesign` | `Func<Guid, string>` | JSON object for one design, or `""` when unknown. |
 | `Vitrine.DesignsChanged` | `Action` (event) | Raised on the framework thread whenever designs or their settings changed. |
 | `Vitrine.OpenWindow` | `Action<bool?>` | `null` toggles, `true` opens, `false` closes the Vitrine window. |
-| `Vitrine.PreviewDesign` | `Func<Guid, string>` | Previews the design on the local player (mod + full-set try-on + replaced emote + matching hair / face). Returns a status message. |
-| `Vitrine.ApplyDesign` | `Func<Guid, string>` | (1.1) Applies the design: mod enabled on the local player, redraw, and exactly the pieces of its `applyAction` equipped (no guessing, no emotes). Returns a status message. |
+| `Vitrine.PreviewDesign` | `Func<Guid, string>` | Previews the design on the local player: mod enabled temporarily, its `pieces` equipped, fitting hair / face applied, replaced emote played. One preview at a time; closing the Vitrine window ends it. Returns a status message. |
+| `Vitrine.ApplyDesign` | `Func<Guid, string>` | (1.1) Like a preview without the emote: mod enabled temporarily on the local player, redraw, exactly its `pieces` equipped. Returns a status message. |
 
 ## Design JSON
 
@@ -40,13 +40,21 @@ enums as strings) so both plugins can evolve independently.
       "Legs": { "enabled": true,  "itemId": null, "itemName": null },
       "Feet": { "enabled": false, "itemId": 1003, "itemName": "Cow Boots" }
     }
+  },
+  "pieces": {
+    "Body": { "itemId": 1001, "itemName": "Cow Top" }
   }
 }
 ```
 
 - `id` is stable across rescans: auto designs derive it from the mod directory.
 - `settings` is `null` when the design uses Penumbra's defaults for the mod.
-- `applyAction` (1.1) is the user's explicit choice of what an apply equips. `null` means the default: every equipment slot the
+- `pieces` (1.2) is what the design equips, resolved by Vitrine: Glamourer slot name → game item, one per affected slot. It is
+  the `applyAction` applied to the mod's affected items, or the first piece of every slot the mod affects when `applyAction`
+  is `null`. Consumers take equipment from here and need no item lookup; `null` when Vitrine could not resolve items.
+  Lamina's Vitrine Design layer puts these into the virtual design's equipment and can mask slots per layer, so two designs
+  can be combined (body from one mod, feet from another).
+- `applyAction` (1.1) is the user's explicit choice of which slots the design affects and which piece each one equips. `null` means the default: every equipment slot the
   mod affects, first alternative per slot (the same plan the try-on uses). Otherwise `slots` maps a Glamourer slot name
   (`MainHand`, `OffHand`, `Head`, `Body`, `Hands`, `Legs`, `Feet`, `Ears`, `Neck`, `Wrists`, `RFinger`, `LFinger`) to a choice:
   `enabled: false` leaves the slot alone; `enabled: true` with an `itemId` equips that game item (`itemName` is the affected-item

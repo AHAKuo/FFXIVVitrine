@@ -48,13 +48,23 @@ pieces a design should equip when it is applied.
 - [x] "(Tail)" / "(Ears)" markers switch the kind; other markers ("(Etc)") keep the plain Face / Hair handling. Body entries
       parse but have no Glamourer value (texture only) and stay in the summary chip.
 
+## Card rework (2026-10-15)
+- [x] Bottom button block removed; every card (Baseline, variants) carries Edit · Copy id (· Delete) and Preview / End preview ·
+      Enable / Disable · Glamourer design. "Edit baseline" is "Edit". Glamourer designs are created directly (no "Open in Glamourer").
+- [x] Preview is transient: one at a time, toggles to "End preview", ended on window close (`OnClose`) and on unload. TRY ON row
+      keeps only the eye colour picker and the replaced emote.
+- [x] Enable / Disable write the card's settings permanently into the player's collection (TrySetMod / Priority / Settings);
+      `designs.json` remembers the active design per mod and the card is highlighted green while the mod is on.
+- [x] "Affected slots" in the editor: slot toggle chips, piece pickers for slots with alternatives, "All" to reset. IPC 1.2 exports
+      the resolved `pieces` so Lamina can layer them with its own slot mask.
+
 ## Verify in game
 - [ ] Mod manager adapter returns metadata (else meta.json fallback); changed-item value types classify correctly; images load.
 - [ ] Photo fetching against real mod pages (XIV Mod Archive, Heliosphere); JPG/PNG decoding.
 - [ ] `ExecuteEmote` argument semantics for emote previews.
 - [ ] Penumbra accepting an empty settings dictionary as "defaults" for previews.
-- [ ] Apply Action editor: slots and pieces listed per mod; "none" and disabled slots respected by Apply; variants inherit the
-      baseline's action on creation.
+- [ ] Affected slots editor: slot chips and piece pickers listed per mod; Preview equips only enabled slots; variants inherit
+      the baseline's slots on creation. Enable writes priority and every option group (Penumbra return codes in the status line).
 - [ ] `AddDesign` accepts the generated JSON (mod association without option `Identifier`s: Glamourer should match groups
       and options by name; if it rejects or drops them, read the ids from Penumbra and add them). Design shows in Glamourer's
       list and "Open in Glamourer" selects it.

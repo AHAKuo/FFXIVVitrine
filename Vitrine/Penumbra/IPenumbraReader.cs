@@ -82,6 +82,15 @@ public interface IPenumbraReader : IDisposable
     /// <summary> Redraws a game object so temporary setting changes become visible. 0 = local player. </summary>
     void RedrawObject(int objectIndex);
 
+    /// <summary> Enables or disables a mod in a collection (permanent, like ticking it in Penumbra). Returns Penumbra's code as int. </summary>
+    int SetModEnabled(Guid collectionId, string modDirectory, bool enabled);
+
+    /// <summary> Sets a mod's priority in a collection (permanent). </summary>
+    int SetModPriority(Guid collectionId, string modDirectory, int priority);
+
+    /// <summary> Sets one option group of a mod in a collection (permanent). </summary>
+    int SetModSettings(Guid collectionId, string modDirectory, string optionGroup, IReadOnlyList<string> options);
+
     /// <summary> Mod directory of a newly added mod. </summary>
     event Action<string>? ModAdded;
 

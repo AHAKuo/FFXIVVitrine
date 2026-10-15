@@ -62,6 +62,20 @@ public sealed class VitrineDesign
     /// affects, first alternative per slot (the same plan Try-on uses).
     /// </summary>
     public ApplyAction? ApplyAction { get; set; }
+
+    /// <summary>
+    /// What the design equips, resolved: one piece per affected slot (the Apply Action's choices, else the first piece of
+    /// every slot the mod affects). Derived from the catalog on every rebuild; null when items could not be resolved.
+    /// Consumers (Lamina) take items from here and need no item lookup of their own.
+    /// </summary>
+    public Dictionary<ApiEquipSlot, ApplyPiece>? Pieces { get; set; }
+}
+
+/// <summary> One resolved piece of a design. </summary>
+public sealed class ApplyPiece
+{
+    public ulong ItemId { get; set; }
+    public string ItemName { get; set; } = string.Empty;
 }
 
 /// <summary>
