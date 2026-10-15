@@ -5,8 +5,12 @@ namespace Vitrine.Photos;
 /// <summary> Finds a display image inside a mod folder, without touching the network. </summary>
 public static class LocalPhotoFinder
 {
-    /// <summary> Image extensions Dalamud's texture loader decodes reliably. WebP is skipped: it needs a system codec that is not always installed. </summary>
-    public static readonly string[] Extensions = { ".png", ".jpg", ".jpeg" };
+    /// <summary>
+    /// Image extensions the texture loader decodes. WebP goes through the Windows codec (installed by default on Windows 11;
+    /// Heliosphere ships every cover as webp); when it is missing the loader fails and the file is reported back as
+    /// undecodable, after which the finder skips it (see <see cref="Find"/>'s <c>isBad</c>).
+    /// </summary>
+    public static readonly string[] Extensions = { ".png", ".jpg", ".jpeg", ".webp" };
 
     /// <summary> Conventional preview file names, in priority order (extension-less). </summary>
     public static readonly string[] ConventionalNames = { "preview", "thumbnail", "thumb", "cover", "image", "screenshot", "icon" };
@@ -16,11 +20,12 @@ public static class LocalPhotoFinder
 
     /// <summary>
     /// Resolution order: the meta image when it exists, a conventional file in the mod folder, then the first image in a known sub folder.
-    /// Returns an absolute path or null.
+    /// Returns an absolute path or null. <paramref name="isBad"/> rejects files the texture loader could not decode.
     /// </summary>
-    public static string? Find(string modFolder, string? metaImagePath)
+    public static string? Find(string modFolder, string? metaImagePath, Func<string, bool>? isBad = null)
     {
-        if (!string.IsNullOrWhiteSpace(metaImagePath) && HasSupportedExtension(metaImagePath) && File.Exists(metaImagePath))
+        isBad ??= _ => false;
+        if (!string.IsNullOrWhiteSpace(metaImagePath) && HasSupportedExtension(metaImagePath) && File.Exists(metaImagePath) && !isBad(metaImagePath))
             return metaImagePath;
 
         if (string.IsNullOrWhiteSpace(modFolder) || !Directory.Exists(modFolder))
@@ -32,12 +37,12 @@ public static class LocalPhotoFinder
                 foreach (var ext in Extensions)
                 {
                     var candidate = Path.Combine(modFolder, name + ext);
-                    if (File.Exists(candidate))
+                    if (File.Exists(candidate) && !isBad(candidate))
                         return candidate;
                 }
 
             // Case-insensitive pass over the top level (file systems that are case sensitive, odd casing).
-            var top = FirstImage(Directory.EnumerateFiles(modFolder), preferConventional: true);
+            var top = FirstImage(Directory.EnumerateFiles(modFolder).Where(f => !isBad(f)), preferConventional: true);
             if (top is not null)
                 return top;
 
@@ -46,7 +51,7 @@ public static class LocalPhotoFinder
                 var sub = Path.Combine(modFolder, folder);
                 if (!Directory.Exists(sub))
                     continue;
-                var inSub = FirstImage(Directory.EnumerateFiles(sub), preferConventional: false);
+                var inSub = FirstImage(Directory.EnumerateFiles(sub).Where(f => !isBad(f)), preferConventional: false);
                 if (inSub is not null)
                     return inSub;
             }

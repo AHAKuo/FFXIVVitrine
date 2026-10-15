@@ -421,7 +421,15 @@ public sealed class VitrineWindow : Window, IDisposable
 
         try
         {
-            return (_textures.GetFromFile(state.Path).GetWrapOrDefault(), state);
+            var shared = _textures.GetFromFile(state.Path);
+            if (shared.TryGetWrap(out var wrap, out var exception))
+                return (wrap, state);
+            if (exception is null)
+                return (null, state); // still loading
+
+            // The loader gave up on this file (no codec for the format, corrupt image): fall back to the next source.
+            _module.Photos.ReportUndecodable(mod, state.Path);
+            return (null, PhotoState.Pending);
         }
         catch
         {

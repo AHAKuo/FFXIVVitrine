@@ -54,6 +54,7 @@ public sealed class ModPhotoService : IDisposable
     private readonly ConcurrentQueue<WorkItem> _queue = new();
     private readonly ConcurrentQueue<WorkResult> _results = new();
     private readonly HashSet<string> _inProgress = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _undecodable = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ModInformation> _mods = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _cts = new();
     private readonly object _workerLock = new();
@@ -147,6 +148,47 @@ public sealed class ModPhotoService : IDisposable
             return PhotoState.Missing;
 
         return Enqueue(mod, force: false);
+    }
+
+    /// <summary>
+    /// Called by the UI when the texture loader could not decode a photo file (typically WebP on a machine without the
+    /// Windows WebP codec). A local file is remembered as bad and the lookup moves on to the mod page; a downloaded file is
+    /// deleted and the mod marked failed until the retry window passes, so the same image is not fetched in a loop.
+    /// </summary>
+    public void ReportUndecodable(ModInformation mod, string path)
+    {
+        if (string.IsNullOrEmpty(mod.ModDirectory) || string.IsNullOrEmpty(path))
+            return;
+        if (_undecodable.Add(path))
+            _logWarning($"Vitrine: could not decode {path}; is the image codec for this format installed? Looking elsewhere.");
+
+        var entry   = _index.Get(mod.ModDirectory);
+        var fetched = entry?.Source == PhotoSource.Fetched && string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase);
+        if (entry is not null && string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase))
+            _index.Remove(mod.ModDirectory);
+        if (string.Equals(mod.ImagePath, path, StringComparison.OrdinalIgnoreCase))
+            mod.ImagePath = string.Empty;
+
+        if (fetched)
+        {
+            TryDelete(path);
+            _index.Set(mod.ModDirectory, new PhotoIndexEntry
+            {
+                Source       = PhotoSource.None,
+                SourceUrl    = mod.Website,
+                FetchedAtUtc = _clock(),
+                LastError    = $"undecodable image ({Path.GetExtension(path).TrimStart('.')} codec missing?)",
+                Attempts     = (entry?.Attempts ?? 0) + 1,
+                NextRetryUtc = _clock() + PhotoIndex.RetryWindow,
+            });
+            _failed++;
+            PhotoResolved?.Invoke(mod.ModDirectory);
+            return;
+        }
+
+        _mods[mod.ModDirectory] = mod;
+        if (!_inProgress.Contains(mod.ModDirectory))
+            Enqueue(mod, force: true);
     }
 
     /// <summary> Forgets what is known about a mod and looks again (the "Refresh photo" button). </summary>
@@ -273,7 +315,7 @@ public sealed class ModPhotoService : IDisposable
         var folder     = ModFolder(mod.ModDirectory);
 
         // Local discovery is a handful of File.Exists calls: do it inline so cards fill instantly.
-        var local = LocalPhotoFinder.Find(folder, mod.ImagePath);
+        var local = LocalPhotoFinder.Find(folder, mod.ImagePath, _undecodable.Contains);
         if (local is not null)
         {
             _index.Set(mod.ModDirectory, new PhotoIndexEntry
@@ -392,8 +434,6 @@ public sealed class ModPhotoService : IDisposable
             return new WorkResult(item.ModDirectory, PhotoSource.None, string.Empty, item.Website, imageUrl.ToString(), image.Error ?? "empty image");
 
         var ext = PhotoIndex.ExtensionFor(image.ContentType, imageUrl);
-        if (ext == ".webp")
-            return new WorkResult(item.ModDirectory, PhotoSource.None, string.Empty, item.Website, imageUrl.ToString(), "unsupported format (webp)");
 
         var path = Path.Combine(_photosDirectory, PhotoIndex.CacheStem(item.ModDirectory) + ext);
         var tmp  = path + ".tmp";

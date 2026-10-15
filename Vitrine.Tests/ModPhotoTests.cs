@@ -179,7 +179,14 @@ public class LocalPhotoFinderTests
 
             Assert.Equal(Path.Combine(dir, "preview.png"), LocalPhotoFinder.Find(dir, Path.Combine(dir, "missing.png")));
             File.WriteAllBytes(Path.Combine(dir, "meta.webp"), new byte[] { 1 });
-            Assert.Equal(Path.Combine(dir, "preview.png"), LocalPhotoFinder.Find(dir, Path.Combine(dir, "meta.webp")));
+            Assert.Equal(Path.Combine(dir, "meta.webp"), LocalPhotoFinder.Find(dir, Path.Combine(dir, "meta.webp")));
+            // A file the loader could not decode is skipped and the next candidate wins.
+            Assert.Equal(Path.Combine(dir, "preview.png"), LocalPhotoFinder.Find(dir, Path.Combine(dir, "meta.webp"), p => p.EndsWith(".webp")));
+            File.WriteAllBytes(Path.Combine(dir, "cover.webp"), new byte[] { 1 });
+            File.Delete(Path.Combine(dir, "preview.png"));
+            Assert.Equal("cover.jpg", Path.GetFileName(LocalPhotoFinder.Find(dir, null)!).ToLowerInvariant()); // jpg beats webp for the same name
+            File.Delete(Path.Combine(dir, "Cover.JPG"));
+            Assert.Equal(Path.Combine(dir, "cover.webp"), LocalPhotoFinder.Find(dir, null)); // a webp-only cover (Heliosphere) is used
         }
         finally
         {
