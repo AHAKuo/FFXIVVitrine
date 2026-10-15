@@ -26,6 +26,17 @@ capture the look by hand.
       design id and offer "Open in Glamourer" (`OpenDesign`).
 - [ ] Works for baselines and variants; disabled with a tooltip when Glamourer is missing or nothing is equippable.
 
+## Try on replaced hair (and other customization) instantly
+Hair mods list affected items like "Customization: Midlander Female Hair 194". Preview enables the mod but the
+character only shows it when wearing that hairstyle.
+- [ ] Parse customization affected items (race, clan, gender, kind: Hair / Face / Tail / Ears, number) from the name.
+- [ ] If the entry matches the player's clan and gender, make the chip clickable and have Preview apply it: Glamourer
+      `ApplyState` with a FileVersion 1 state that sets only that customization value (`Hairstyle` = 194, `Apply` = true)
+      with flags Customization | Once (not persisted, no lock; retry with Lamina's key on InvalidKey like SetItem).
+- [ ] Entries for another clan / gender are shown but disabled with a tooltip ("made for Miqo'te female"); when a mod
+      ships several variants (194 and 195), the first matching one is used for Preview and each is clickable.
+- [ ] "Revert try-on" and "End preview" revert it like gear (`RevertToAutomation`); Lamina hand-back unchanged.
+
 ## Verify in game
 - [ ] Photo fetching against real mod pages (XIV Mod Archive, Heliosphere); JPG/PNG decoding.
 - [ ] `ExecuteEmote` argument semantics for emote previews.
