@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/Luna/">
+    <Project Path="Luna/Luna.Generators/Luna.Generators.csproj" />
+    <Project Path="Luna/Luna/Luna.csproj" />
+  </Folder>
+  <Project Path="Glamourer.Api/Glamourer.Api.csproj" />
+  <Project Path="Penumbra.Api/Penumbra.Api.csproj" />
+  <Project Path="Vitrine/Vitrine.csproj" />
+  <Project Path="Vitrine.Tests/Vitrine.Tests.csproj" />
+</Solution>
