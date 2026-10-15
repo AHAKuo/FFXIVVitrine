@@ -4,6 +4,7 @@ using Glamourer.Api.Enums;
 using Penumbra.Api.Enums;
 using Vitrine.Catalog;
 using Vitrine.Glamourer;
+using Vitrine.Lamina;
 using Vitrine.Penumbra;
 
 namespace Vitrine.TryOn;
@@ -12,6 +13,7 @@ namespace Vitrine.TryOn;
 /// Shows a design on the local player: writes the mod's temporary settings into the player's collection (Vitrine's key),
 /// redraws, equips a full set of the mod's affected gear through Glamourer and plays replaced emotes.
 /// Everything runs on the framework thread (called from ImGui draws and IPC).
+/// Ending a preview can hand the character back to Lamina (ask it to re-apply its design) when that setting is on.
 /// </summary>
 public sealed class PreviewService
 {
@@ -23,10 +25,12 @@ public sealed class PreviewService
     private readonly IObjectTable _objects;
     private readonly IFramework _framework;
     private readonly IPluginLog _log;
+    private readonly LaminaHandBack _handBack;
     private readonly HashSet<string> _previewed = new(StringComparer.OrdinalIgnoreCase);
 
     public PreviewService(IPenumbraReader penumbra, GlamourerLink glamourer, ItemResolver items, EmotePlayer emotes,
-        IClientState clientState, IObjectTable objects, IFramework framework, IPluginLog log)
+        IClientState clientState, IObjectTable objects, IFramework framework, IPluginLog log,
+        ILaminaLink lamina, Func<bool> handBackToLamina)
     {
         _penumbra    = penumbra;
         _glamourer   = glamourer;
@@ -36,6 +40,7 @@ public sealed class PreviewService
         _objects     = objects;
         _framework   = framework;
         _log         = log;
+        _handBack    = new LaminaHandBack(lamina, handBackToLamina);
     }
 
     /// <summary> Mod directories currently carrying a Vitrine preview setting. </summary>
@@ -85,7 +90,32 @@ public sealed class PreviewService
         return message.ToString();
     }
 
-    /// <summary> Removes a mod's preview setting from the player and redraws. </summary>
+    /// <summary>
+    /// Ends a preview as one action: removes the design's mods' preview settings from the player, reverts the gear try-on
+    /// (Glamourer automation), redraws, then hands the look back to Lamina when the setting is on.
+    /// </summary>
+    public string EndPreview(VitrineDesign design)
+    {
+        if (!_penumbra.Available)
+            return "Penumbra is not available.";
+
+        PenumbraApiEc? error = null;
+        foreach (var mod in design.Mods)
+        {
+            var code = (PenumbraApiEc)_penumbra.RemoveTemporaryModSettingsPlayer(VitrineConstants.LocalPlayerIndex, mod.ModDirectory, VitrineConstants.TemporaryKey);
+            if (code is not (PenumbraApiEc.Success or PenumbraApiEc.NothingChanged))
+                error = code;
+            _previewed.Remove(mod.ModDirectory);
+        }
+
+        if (_glamourer.Available && HasPlayer())
+            _glamourer.RevertToAutomation(VitrineConstants.LocalPlayerIndex);
+        _penumbra.RedrawObject(VitrineConstants.LocalPlayerIndex);
+
+        return _handBack.Append(error is { } e ? $"Preview ended (Penumbra returned {e})" : "Preview ended");
+    }
+
+    /// <summary> Removes a mod's preview setting from the player and redraws. Gear try-ons are left alone; see <see cref="EndPreview"/>. </summary>
     public string ClearPreview(string modDirectory)
     {
         if (!_penumbra.Available)
@@ -94,10 +124,10 @@ public sealed class PreviewService
         var code = (PenumbraApiEc)_penumbra.RemoveTemporaryModSettingsPlayer(VitrineConstants.LocalPlayerIndex, modDirectory, VitrineConstants.TemporaryKey);
         _previewed.Remove(modDirectory);
         _penumbra.RedrawObject(VitrineConstants.LocalPlayerIndex);
-        return code is PenumbraApiEc.Success or PenumbraApiEc.NothingChanged ? "Preview removed and redrawn." : $"Penumbra returned {code}.";
+        return _handBack.Append(code is PenumbraApiEc.Success or PenumbraApiEc.NothingChanged ? "Preview removed and redrawn" : $"Penumbra returned {code}");
     }
 
-    /// <summary> Removes every Vitrine preview setting from the player. Called on unload and from the UI. </summary>
+    /// <summary> Removes every Vitrine preview setting from the player, then hands back to Lamina when the setting is on. Called on unload and from the UI. </summary>
     public string ClearAllPreviews(bool redraw = true)
     {
         if (!_penumbra.Available)
@@ -107,7 +137,7 @@ public sealed class PreviewService
         _previewed.Clear();
         if (redraw)
             _penumbra.RedrawObject(VitrineConstants.LocalPlayerIndex);
-        return code is PenumbraApiEc.Success or PenumbraApiEc.NothingChanged ? "All previews removed." : $"Penumbra returned {code}.";
+        return _handBack.Append(code is PenumbraApiEc.Success or PenumbraApiEc.NothingChanged ? "All previews removed" : $"Penumbra returned {code}");
     }
 
     /// <summary> Equips one affected item by name. </summary>
@@ -177,7 +207,7 @@ public sealed class PreviewService
     public string PlayEmote(string name)
         => _emotes.Play(name);
 
-    /// <summary> Undoes try-ons: Glamourer reverts the player to whatever its automation would show. </summary>
+    /// <summary> Undoes try-ons: Glamourer reverts the player to whatever its automation would show, then Lamina re-applies when the setting is on. </summary>
     public string RevertTryOn()
     {
         if (!_glamourer.Available)
@@ -186,9 +216,9 @@ public sealed class PreviewService
             return "No character to revert.";
 
         var code = _glamourer.RevertToAutomation(VitrineConstants.LocalPlayerIndex);
-        return code is GlamourerApiEc.Success or GlamourerApiEc.NothingDone
-            ? "Reverted to Glamourer automation."
-            : $"Glamourer returned {code} (a state locked by another plugin cannot be reverted from here).";
+        return _handBack.Append(code is GlamourerApiEc.Success or GlamourerApiEc.NothingDone
+            ? "Reverted to Glamourer automation"
+            : $"Glamourer returned {code} (a state locked by another plugin cannot be reverted from here)");
     }
 
     private bool HasPlayer()

@@ -565,13 +565,10 @@ public sealed class VitrineWindow : Window, IDisposable
                 ImGui.SetTooltip(_module.Preview.CanPreview
                     ? "Enables the mod on you (temporary Penumbra setting), redraws, equips one affected item per slot through Glamourer\nand plays the replaced emote, so you can see the whole look and save it as a Glamourer design."
                     : "Needs Penumbra and a logged-in character.");
-            if (ImGui.SmallButton("Clear preview"))
-                SetStatus(_module.ClearPreview(mod.ModDirectory));
-            ImGui.SameLine();
-            if (ImGui.SmallButton("Revert try-on"))
-                SetStatus(_module.Preview.RevertTryOn());
+            if (ImGui.Button("End preview", new Vector2(ImGui.GetContentRegionAvail().X, 0)))
+                SetStatus(_module.EndPreview(auto));
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Hands the character back to Glamourer automation (undoes equipped try-on items).");
+                ImGui.SetTooltip("Removes this mod's preview from you, reverts the gear try-on and hands your look back to Lamina if it is installed.");
         }
 
         if (DateTime.UtcNow < _statusUntil)
@@ -622,7 +619,7 @@ public sealed class VitrineWindow : Window, IDisposable
             }
 
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                ImGui.SetTooltip("Hands the character back to Glamourer automation.");
+                ImGui.SetTooltip("Reverts gear only; the mod preview stays. Hands the look back to Lamina if that setting is on.");
         }
 
         if (hasEmote)
@@ -1092,10 +1089,28 @@ public sealed class VitrineWindow : Window, IDisposable
             : "Not available: previews enable mods but cannot equip their gear.");
 
         ImGui.Spacing();
+        SectionLabel("LAMINA");
+        var lamina = _module.Lamina;
+        ImGui.TextUnformatted(lamina.Available
+            ? $"Connected (IPC {lamina.ApiVersion?.Major}.{lamina.ApiVersion?.Minor})."
+            : "Not installed.");
+        var handBack = settings.HandBackToLamina;
+        if (ImGui.Checkbox("After ending a preview, ask Lamina to reapply its design", ref handBack))
+        {
+            settings.HandBackToLamina = handBack;
+            changed = true;
+        }
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Only has an effect when Lamina is installed. Without it, use /lam reapply after a preview.");
+
+        ImGui.Spacing();
         SectionLabel("PREVIEWS");
         ImGui.TextColored(Color(MutedText), $"{_module.Preview.PreviewedMods.Count} mod(s) currently previewed through temporary settings.");
         if (ImGui.Button("Clear all previews"))
             SetStatus(_module.Preview.ClearAllPreviews());
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Removes every Vitrine preview setting from you and hands the look back to Lamina if that setting is on.");
 
         if (changed)
         {

@@ -5,6 +5,7 @@ using Dalamud.Plugin.Services;
 using Vitrine.Catalog;
 using Vitrine.Designs;
 using Vitrine.Glamourer;
+using Vitrine.Lamina;
 using Vitrine.Penumbra;
 using Vitrine.Photos;
 using Vitrine.TryOn;
@@ -47,6 +48,7 @@ public sealed class VitrineModule : IDisposable
 
         Reader      = new PenumbraReader(pi, log);
         Glamourer   = new GlamourerLink(pi, log);
+        Lamina      = new LaminaLink(pi, log);
         Catalog     = new ModCatalog(Reader, Path.Combine(dataDirectory, "mods.json"), m => log.Warning(m), m => log.Debug(m));
         DesignStore = new VitrineDesignStore(Path.Combine(dataDirectory, "designs.json"), m => log.Warning(m));
         Photos      = new ModPhotoService(
@@ -57,7 +59,7 @@ public sealed class VitrineModule : IDisposable
             m => log.Warning(m),
             m => log.Debug(m));
         Preview = new PreviewService(Reader, Glamourer, new ItemResolver(data, log), new EmotePlayer(data, condition, clientState, log),
-            clientState, objects, framework, log);
+            clientState, objects, framework, log, Lamina, () => Settings.HandBackToLamina);
 
         Catalog.LoadCache();
         DesignStore.Load();
@@ -90,6 +92,9 @@ public sealed class VitrineModule : IDisposable
 
     /// <summary> The Glamourer link used for try-on. </summary>
     public GlamourerLink Glamourer { get; }
+
+    /// <summary> The Lamina link used to hand the character back after a preview. </summary>
+    public LaminaLink Lamina { get; }
 
     /// <summary> The mod catalog. </summary>
     public ModCatalog Catalog { get; }
@@ -199,6 +204,14 @@ public sealed class VitrineModule : IDisposable
         return message;
     }
 
+    /// <summary> Ends a design's preview: mod settings removed, gear reverted, redraw, hand back to Lamina (setting). </summary>
+    public string EndPreview(VitrineDesign design)
+    {
+        var message = Preview.EndPreview(design);
+        RequestCollectionRefresh();
+        return message;
+    }
+
     // ---- internals -----------------------------------------------------------------------------------------------
 
     private void OnUpdate(IFramework framework)
@@ -270,6 +283,7 @@ public sealed class VitrineModule : IDisposable
         _windowSystem.RemoveAllWindows();
         _window.Dispose();
         Photos.Dispose();
+        Lamina.Dispose();
         Glamourer.Dispose();
         Reader.Dispose();
     }

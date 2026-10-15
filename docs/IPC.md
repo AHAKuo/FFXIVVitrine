@@ -52,3 +52,18 @@ layer's `SettingsOverride` on top.
 
 Lamina locks the player's Glamourer state with key `0x4C414D49` ("LAMI"). Vitrine's try-on first calls `SetItem` with key 0
 and, on `InvalidKey`, retries with that key so previews work while Lamina is active. Lamina's next apply replaces the try-on.
+
+## Lamina IPC (consumed by Vitrine)
+
+Lamina registers these gates so Vitrine can hand the character back after a preview. Vitrine treats Lamina as optional.
+
+| Label | Shape | Meaning |
+|---|---|---|
+| `Lamina.ApiVersion` | `Func<(int Major, int Minor)>` | `(1, 0)`. |
+| `Lamina.Ready` | `Action` (event) | Raised after Lamina finished loading. |
+| `Lamina.Disposed` | `Action` (event) | Raised when Lamina is unloading. |
+| `Lamina.Reapply` | `Action` | Re-evaluate and re-apply the active design (same as `/lam reapply`); runs on the framework thread. |
+| `Lamina.IsEnabled` | `Func<bool>` | Lamina's master toggle. |
+
+Vitrine calls `Lamina.Reapply` after "End preview", "Revert try-on" and "Clear all previews" when its setting
+"After ending a preview, ask Lamina to reapply its design" is on (default).
