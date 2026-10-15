@@ -36,6 +36,13 @@ character only shows it when wearing that hairstyle.
 - [ ] Entries for another clan / gender are shown but disabled with a tooltip ("made for Miqo'te female"); when a mod
       ships several variants (194 and 195), the first matching one is used for Preview and each is clickable.
 - [ ] "Revert try-on" and "End preview" revert it like gear (`RevertToAutomation`); Lamina hand-back unchanged.
+- [ ] **Eyes**: entries like "Customization: Au Ra Female Face (Iris) 1" are per-face iris textures. Parse the "(Iris)" /
+      "(Eyes)" marker and the face number; the try-on applies `Face` = N for the matching clan / gender (if the
+      character already uses that face nothing changes and the mod simply shows). Many eye packs need a base eye colour
+      ("set eyes to white when using options 1-10"): add a quick eye-colour picker in the TRY ON row (right / left for
+      odd eyes, applied with Customization | Once) so the pack can be judged without opening Glamourer.
+- [ ] Same parsing covers "(Etc)", "(Tail)", "(Ears)" markers where mods use them; unknown markers fall back to the
+      plain Face / Hair handling.
 
 ## Verify in game
 - [ ] Photo fetching against real mod pages (XIV Mod Archive, Heliosphere); JPG/PNG decoding.
