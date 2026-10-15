@@ -27,6 +27,8 @@ public sealed class Baseline
     public Dictionary<string, List<string>>? Settings { get; set; }
     /// <summary> Explicit pieces to equip on apply; null = every affected slot. </summary>
     public ApplyAction? ApplyAction { get; set; }
+    /// <summary> Empty the gear slots the design does not fill. </summary>
+    public bool ClearOtherSlots { get; set; }
 }
 
 /// <summary> A user created variant of an auto design. </summary>
@@ -41,6 +43,8 @@ public sealed class StoredVariant
     public Dictionary<string, List<string>>? Settings { get; set; }
     /// <summary> Explicit pieces to equip on apply; null = every affected slot. </summary>
     public ApplyAction? ApplyAction { get; set; }
+    /// <summary> Empty the gear slots the design does not fill. </summary>
+    public bool ClearOtherSlots { get; set; }
 }
 
 /// <summary>
@@ -168,6 +172,7 @@ public sealed class VitrineDesignStore
             Priority     = baseline?.Priority ?? 0,
             Settings     = baseline?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()),
             ApplyAction  = CloneAction(baseline?.ApplyAction),
+            ClearOtherSlots = baseline?.ClearOtherSlots ?? false,
         };
         _file.Variants.Add(variant);
         Save();
@@ -178,12 +183,13 @@ public sealed class VitrineDesignStore
     /// <summary> Updates a variant in place and saves. Returns false when the id is not a variant. </summary>
     /// <param name="applyAction"> New apply action; <paramref name="clearApplyAction"/> resets it to the default (null). </param>
     public bool UpdateVariant(Guid id, string? name = null, bool? enabled = null, int? priority = null, Dictionary<string, List<string>>? settings = null, bool clearSettings = false,
-        ApplyAction? applyAction = null, bool clearApplyAction = false)
+        ApplyAction? applyAction = null, bool clearApplyAction = false, bool? clearOtherSlots = null)
     {
         var variant = _file.Variants.FirstOrDefault(v => v.Id == id);
         if (variant is null)
             return false;
 
+        if (clearOtherSlots is { } clear) variant.ClearOtherSlots = clear;
         if (name is not null) variant.Name = name;
         if (enabled is { } e) variant.Enabled = e;
         if (priority is { } p) variant.Priority = p;
@@ -234,7 +240,8 @@ public sealed class VitrineDesignStore
                         Settings     = baseline?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()),
                     },
                 },
-                ApplyAction = CloneAction(baseline?.ApplyAction),
+                ApplyAction     = CloneAction(baseline?.ApplyAction),
+                ClearOtherSlots = baseline?.ClearOtherSlots ?? false,
             };
             design.Pieces = ResolvePieces(mod, design.ApplyAction);
             list.Add(design);
@@ -263,7 +270,8 @@ public sealed class VitrineDesignStore
                         Settings     = variant.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()),
                     },
                 },
-                ApplyAction = CloneAction(variant.ApplyAction),
+                ApplyAction     = CloneAction(variant.ApplyAction),
+                ClearOtherSlots = variant.ClearOtherSlots,
             };
             design.Pieces = ResolvePieces(_mods.FirstOrDefault(m => string.Equals(m.ModDirectory, variant.ModDirectory, StringComparison.OrdinalIgnoreCase)), design.ApplyAction);
             list.Add(design);

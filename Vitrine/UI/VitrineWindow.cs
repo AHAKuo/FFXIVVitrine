@@ -906,6 +906,15 @@ public sealed class VitrineWindow : Window, IDisposable
         }
     }
 
+    /// <summary> "Clear other slots" checkbox of the editors. </summary>
+    private static bool DrawClearOtherSlots(ref bool value)
+    {
+        var changed = ImGui.Checkbox("Clear other slots", ref value);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Empties every gear slot this design does not fill (head to rings; weapons stay) when it is previewed,\nexported to Glamourer or layered in Lamina, so an outfit worn before does not bleed through.");
+        return changed;
+    }
+
     private void DrawBaselineCard(ModInformation mod, VitrineDesign auto)
     {
         var scale  = ImGuiHelpers.GlobalScale;
@@ -922,13 +931,14 @@ public sealed class VitrineWindow : Window, IDisposable
         var stored = _module.DesignStore.BaselineFor(mod.ModDirectory);
         if (draft is null)
         {
-            DrawSettingsSummary(mod, stored?.Settings, stored?.Priority ?? 0, applyAction: stored?.ApplyAction);
+            DrawSettingsSummary(mod, stored?.Settings, stored?.Priority ?? 0, applyAction: stored?.ApplyAction, clearOtherSlots: stored?.ClearOtherSlots ?? false);
             if (ImGui.SmallButton("Edit"))
                 _baselineDrafts[mod.ModDirectory] = new Baseline
                 {
-                    Priority    = stored?.Priority ?? 0,
-                    Settings    = stored?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()) ?? DefaultSettingsFor(mod),
-                    ApplyAction = VitrineDesignStore.CloneAction(stored?.ApplyAction),
+                    Priority        = stored?.Priority ?? 0,
+                    Settings        = stored?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()) ?? DefaultSettingsFor(mod),
+                    ApplyAction     = VitrineDesignStore.CloneAction(stored?.ApplyAction),
+                    ClearOtherSlots = stored?.ClearOtherSlots ?? false,
                 };
             ImGui.SameLine();
             if (ImGui.SmallButton("Copy id"))
@@ -949,6 +959,9 @@ public sealed class VitrineWindow : Window, IDisposable
         draft.Settings ??= DefaultSettingsFor(mod);
         DrawSettingsEditor(mod, draft.Settings);
         DrawSlotsEditor(mod, draft.ApplyAction, a => draft.ApplyAction = a);
+        var clear = draft.ClearOtherSlots;
+        if (DrawClearOtherSlots(ref clear))
+            draft.ClearOtherSlots = clear;
 
         if (ImGui.SmallButton("Save"))
         {
@@ -979,6 +992,7 @@ public sealed class VitrineWindow : Window, IDisposable
             Priority = state?.Priority ?? 0,
             Settings = state?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()) ?? DefaultSettingsFor(mod),
             ApplyAction = VitrineDesignStore.CloneAction(variant.ApplyAction),
+            ClearOtherSlots = variant.ClearOtherSlots,
         };
 
     private void DrawVariantCard(ModInformation mod, VitrineDesign variant)
@@ -997,7 +1011,7 @@ public sealed class VitrineWindow : Window, IDisposable
             ImGui.TextColored(Color(active ? ActiveBorder : MutedText), active ? "Active" : "Variant");
             if (_module.DesignStore.IsOrphan(variant))
                 ImGui.TextColored(Color(WarnText), "mod missing");
-            DrawSettingsSummary(mod, state?.Settings, state?.Priority ?? 0, state?.Enabled ?? true, variant.ApplyAction);
+            DrawSettingsSummary(mod, state?.Settings, state?.Priority ?? 0, state?.Enabled ?? true, variant.ApplyAction, variant.ClearOtherSlots);
             if (ImGui.SmallButton("Edit"))
             {
                 _editingVariant = variant.Id;
@@ -1037,10 +1051,11 @@ public sealed class VitrineWindow : Window, IDisposable
         ImGui.InputInt("Priority", ref draft.Priority);
         DrawSettingsEditor(mod, draft.Settings);
         DrawSlotsEditor(mod, draft.ApplyAction, a => draft.ApplyAction = a);
+        DrawClearOtherSlots(ref draft.ClearOtherSlots);
         if (ImGui.SmallButton("Save"))
         {
             _module.UpdateVariant(variant.Id, draft.Name, draft.Enabled, draft.Priority, draft.Settings,
-                applyAction: draft.ApplyAction, clearApplyAction: draft.ApplyAction is null);
+                applyAction: draft.ApplyAction, clearApplyAction: draft.ApplyAction is null, clearOtherSlots: draft.ClearOtherSlots);
             _editingVariant = null;
             _variantDrafts.Remove(variant.Id);
             SetStatus("Variant saved.");
@@ -1054,7 +1069,7 @@ public sealed class VitrineWindow : Window, IDisposable
         }
     }
 
-    private void DrawSettingsSummary(ModInformation mod, Dictionary<string, List<string>>? settings, int priority, bool enabled = true, ApplyAction? applyAction = null)
+    private void DrawSettingsSummary(ModInformation mod, Dictionary<string, List<string>>? settings, int priority, bool enabled = true, ApplyAction? applyAction = null, bool clearOtherSlots = false)
     {
         var parts = new List<string>();
         if (!enabled)
@@ -1068,6 +1083,8 @@ public sealed class VitrineWindow : Window, IDisposable
                 parts.Add(options.Count == 0 ? $"{group}: none" : $"{group}: {string.Join(", ", options)}");
         if (applyAction is not null)
             parts.Add($"slots: {ApplyPlanner.Describe(applyAction)}");
+        if (clearOtherSlots)
+            parts.Add("empties the other gear slots");
         ImGui.PushTextWrapPos();
         ImGui.TextColored(Color(MutedText), string.Join(" · ", parts));
         ImGui.PopTextWrapPos();
@@ -1527,6 +1544,7 @@ public sealed class VitrineWindow : Window, IDisposable
         public int Priority;
         public Dictionary<string, List<string>> Settings = new();
         public ApplyAction? ApplyAction;
+        public bool ClearOtherSlots;
     }
 
     /// <summary> Snapshot of collection assignments for the Collections tab. Built on demand, cheap. </summary>

@@ -6,7 +6,7 @@ enums as strings) so both plugins can evolve independently.
 
 | Label | Shape | Meaning |
 |---|---|---|
-| `Vitrine.ApiVersion` | `Func<(int Major, int Minor)>` | `(1, 2)`. Major changes break the contract; minor additions are marked below. |
+| `Vitrine.ApiVersion` | `Func<(int Major, int Minor)>` | `(1, 3)`. Major changes break the contract; minor additions are marked below. |
 | `Vitrine.Ready` | `Action` (event) | Raised after Vitrine finished loading and the IPC is usable. |
 | `Vitrine.Disposed` | `Action` (event) | Raised when Vitrine is unloading. |
 | `Vitrine.GetDesigns` | `Func<string>` | JSON array of designs (see below), stable order. Empty array when Penumbra is missing. |
@@ -43,7 +43,8 @@ enums as strings) so both plugins can evolve independently.
   },
   "pieces": {
     "Body": { "itemId": 1001, "itemName": "Cow Top" }
-  }
+  },
+  "clearOtherSlots": true
 }
 ```
 
@@ -54,6 +55,10 @@ enums as strings) so both plugins can evolve independently.
   is `null`. Consumers take equipment from here and need no item lookup; `null` when Vitrine could not resolve items.
   Lamina's Vitrine Design layer puts these into the virtual design's equipment and can mask slots per layer, so two designs
   can be combined (body from one mod, feet from another).
+- `clearOtherSlots` (1.3): when true the design empties every gear slot its `pieces` do not fill (head, body, hands, legs, feet,
+  ears, neck, wrists, both rings; weapons are never touched) by applying Glamourer's "Nothing" item (`uint.MaxValue - 128 -
+  <Penumbra slot index>`). Vitrine does this for previews and exported Glamourer designs; Lamina's Vitrine Design layer does it
+  in the virtual design and can override the flag per layer.
 - `applyAction` (1.1) is the user's explicit choice of which slots the design affects and which piece each one equips. `null` means the default: every equipment slot the
   mod affects, first alternative per slot (the same plan the try-on uses). Otherwise `slots` maps a Glamourer slot name
   (`MainHand`, `OffHand`, `Head`, `Body`, `Hands`, `Legs`, `Feet`, `Ears`, `Neck`, `Wrists`, `RFinger`, `LFinger`) to a choice:

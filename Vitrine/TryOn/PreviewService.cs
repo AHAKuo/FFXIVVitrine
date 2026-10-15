@@ -99,14 +99,17 @@ public sealed class PreviewService
         return message.ToString();
     }
 
-    /// <summary> Equips the design's pieces (its affected slots, one piece each). Empty message when there is nothing to equip. </summary>
+    /// <summary>
+    /// Equips the design's pieces (its affected slots, one piece each) and, when the design clears other slots, empties every
+    /// other gear slot. Empty message when there is nothing to do.
+    /// </summary>
     private string EquipPieces(VitrineDesign design, ModInformation info)
     {
         if (!_glamourer.Available)
             return "Glamourer not loaded: pieces not equipped.";
 
         var plan = ApplyPlanner.Plan(design.ApplyAction, info.AffectedItems, _items);
-        if (plan.Items.Count == 0)
+        if (plan.Items.Count == 0 && !design.ClearOtherSlots)
             return string.Empty;
 
         var equipped = 0;
@@ -120,7 +123,26 @@ public sealed class PreviewService
                 lastError = code;
         }
 
-        return $"Equipped {equipped} of {plan.Items.Count} piece(s){(lastError is { } e ? $" (Glamourer: {e})" : string.Empty)}.";
+        var cleared = 0;
+        if (design.ClearOtherSlots)
+            foreach (var slot in ApplyPlanner.SlotsToClear(plan.Items))
+            {
+                var code = _glamourer.SetItem(VitrineConstants.LocalPlayerIndex, slot, ApplyPlanner.NothingId(slot)!.Value);
+                if (code is GlamourerApiEc.Success or GlamourerApiEc.NothingDone)
+                    cleared++;
+                else
+                    lastError = code;
+            }
+
+        var sb = new StringBuilder();
+        if (plan.Items.Count > 0)
+            sb.Append($"Equipped {equipped} of {plan.Items.Count} piece(s)");
+        if (design.ClearOtherSlots)
+            sb.Append(sb.Length > 0 ? $", emptied {cleared} other slot(s)" : $"Emptied {cleared} gear slot(s)");
+        if (lastError is { } e)
+            sb.Append($" (Glamourer: {e})");
+        sb.Append('.');
+        return sb.ToString();
     }
 
     /// <summary>
@@ -467,7 +489,7 @@ public sealed class PreviewService
 
     /// <summary> True when a Glamourer design made from the design would apply at least one piece or customization. </summary>
     public bool CanMakeGlamourerDesign(VitrineDesign design, ModInformation mod)
-        => PlanApply(design, mod).Items.Count > 0 || MatchingCustomizations(mod).Count > 0;
+        => design.ClearOtherSlots || PlanApply(design, mod).Items.Count > 0 || MatchingCustomizations(mod).Count > 0;
 
     /// <summary>
     /// Builds a Glamourer design from the Vitrine design (its Apply Action pieces or the full-set plan, matching hair / face
@@ -481,12 +503,12 @@ public sealed class PreviewService
 
         var plan      = PlanApply(design, mod);
         var customize = MatchingCustomizations(mod).ToDictionary(e => e.GlamourerKey!, e => e.Value);
-        if (plan.Items.Count == 0 && customize.Count == 0)
+        if (plan.Items.Count == 0 && customize.Count == 0 && !design.ClearOtherSlots)
             return "Nothing to put in a design: this mod has no equippable pieces or matching customization.";
 
         var state = design.Mods.Count > 0 ? design.Mods[0] : null;
         var name  = design.IsAuto ? $"{mod.Name} · Baseline" : $"{mod.Name} · {design.Name}";
-        var json  = GlamourerDesignBuilder.Build(name, $"Created by Vitrine from the mod \"{mod.Name}\".", plan.Items, customize, state, mod.AvailableSettings);
+        var json  = GlamourerDesignBuilder.Build(name, $"Created by Vitrine from the mod \"{mod.Name}\".", plan.Items, customize, state, mod.AvailableSettings, design.ClearOtherSlots);
         var code  = _glamourer.AddDesign(json, name, out created);
         if (code != GlamourerApiEc.Success)
             return $"Glamourer returned {code} while creating the design.";
@@ -494,6 +516,8 @@ public sealed class PreviewService
         var parts = new List<string>();
         if (plan.Items.Count > 0)
             parts.Add($"{plan.Items.Count} piece(s)");
+        if (design.ClearOtherSlots)
+            parts.Add("the other gear slots emptied");
         if (customize.Count > 0)
             parts.Add(string.Join(", ", customize.Keys));
         return $"Glamourer design \"{name}\" created with {string.Join(" and ", parts)} and the mod attached.";

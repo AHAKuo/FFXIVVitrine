@@ -69,6 +69,12 @@ public sealed class VitrineDesign
     /// Consumers (Lamina) take items from here and need no item lookup of their own.
     /// </summary>
     public Dictionary<ApiEquipSlot, ApplyPiece>? Pieces { get; set; }
+
+    /// <summary>
+    /// Empty every gear slot the design does not fill (head to rings; weapons are left alone) when it is previewed, exported
+    /// to Glamourer or layered in Lamina, so an outfit worn before does not bleed through.
+    /// </summary>
+    public bool ClearOtherSlots { get; set; }
 }
 
 /// <summary> One resolved piece of a design. </summary>

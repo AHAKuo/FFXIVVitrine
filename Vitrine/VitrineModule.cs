@@ -180,8 +180,8 @@ public sealed class VitrineModule : IDisposable
 
     /// <summary> Updates a variant. </summary>
     public bool UpdateVariant(Guid id, string? name = null, bool? enabled = null, int? priority = null, Dictionary<string, List<string>>? settings = null, bool clearSettings = false,
-        ApplyAction? applyAction = null, bool clearApplyAction = false)
-        => DesignStore.UpdateVariant(id, name, enabled, priority, settings, clearSettings, applyAction, clearApplyAction);
+        ApplyAction? applyAction = null, bool clearApplyAction = false, bool? clearOtherSlots = null)
+        => DesignStore.UpdateVariant(id, name, enabled, priority, settings, clearSettings, applyAction, clearApplyAction, clearOtherSlots);
 
     /// <summary> Deletes a variant. </summary>
     public bool DeleteVariant(Guid id)

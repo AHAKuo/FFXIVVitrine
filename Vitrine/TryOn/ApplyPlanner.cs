@@ -83,6 +83,36 @@ public static class ApplyPlanner
         return new ApplyPlan(items, missing);
     }
 
+    /// <summary>
+    /// Glamourer's custom item id for an empty gear slot: <c>uint.MaxValue - 128 - penumbraSlotIndex</c> (Head 3, Body 4,
+    /// Hands 5, Legs 7, Feet 8, Ears 9, Neck 10, Wrists 11, both rings 12). Weapons have none (it depends on the weapon type).
+    /// </summary>
+    public static ulong? NothingId(ApiEquipSlot slot)
+        => slot switch
+        {
+            ApiEquipSlot.Head    => uint.MaxValue - 128 - 3,
+            ApiEquipSlot.Body    => uint.MaxValue - 128 - 4,
+            ApiEquipSlot.Hands   => uint.MaxValue - 128 - 5,
+            ApiEquipSlot.Legs    => uint.MaxValue - 128 - 7,
+            ApiEquipSlot.Feet    => uint.MaxValue - 128 - 8,
+            ApiEquipSlot.Ears    => uint.MaxValue - 128 - 9,
+            ApiEquipSlot.Neck    => uint.MaxValue - 128 - 10,
+            ApiEquipSlot.Wrists  => uint.MaxValue - 128 - 11,
+            ApiEquipSlot.RFinger => uint.MaxValue - 128 - 12,
+            ApiEquipSlot.LFinger => uint.MaxValue - 128 - 12,
+            _                    => null,
+        };
+
+    /// <summary> Gear slots that can be emptied, in slot order (weapons excluded). </summary>
+    public static readonly IReadOnlyList<ApiEquipSlot> ClearableSlots = SlotOrder.Where(s => NothingId(s) is not null).ToList();
+
+    /// <summary> The slots a design empties when it clears other slots: every clearable slot its pieces do not fill. </summary>
+    public static IReadOnlyList<ApiEquipSlot> SlotsToClear(IEnumerable<EquippableItem> pieces)
+    {
+        var used = pieces.Select(p => p.Slot).ToHashSet();
+        return ClearableSlots.Where(s => !used.Contains(s)).ToList();
+    }
+
     /// <summary> Human summary of an action for cards ("Head · Body: Milky Chest · Feet: none"). Null action → "default". </summary>
     public static string Describe(ApplyAction? action)
     {

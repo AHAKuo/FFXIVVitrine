@@ -21,19 +21,17 @@ public static class GlamourerDesignBuilder
     /// <param name="customize"> Glamourer customize key → value to apply (e.g. "Hairstyle" → 194). </param>
     /// <param name="mod"> The mod association, or null for none. </param>
     /// <param name="availableSettings"> The mod's option groups, so every option is listed with its enabled / disabled state. </param>
+    /// <param name="clearOtherSlots"> Also apply Glamourer's "Nothing" to every gear slot the pieces do not fill (weapons excluded). </param>
     public static JObject Build(string name, string description, IEnumerable<EquippableItem> items, IReadOnlyDictionary<string, int>? customize,
-        VitrineModState? mod, IReadOnlyDictionary<string, (string[] Options, int GroupType)>? availableSettings)
+        VitrineModState? mod, IReadOnlyDictionary<string, (string[] Options, int GroupType)>? availableSettings, bool clearOtherSlots = false)
     {
+        var pieces    = items.ToList();
         var equipment = new JObject();
-        foreach (var item in items)
-            equipment[item.Slot.ToString()] = new JObject
-            {
-                ["ItemId"]     = item.ItemId,
-                ["Stain"]      = 0,
-                ["Stain2"]     = 0,
-                ["Apply"]      = true,
-                ["ApplyStain"] = false,
-            };
+        foreach (var item in pieces)
+            equipment[item.Slot.ToString()] = Slot(item.ItemId);
+        if (clearOtherSlots)
+            foreach (var slot in ApplyPlanner.SlotsToClear(pieces))
+                equipment[slot.ToString()] = Slot(ApplyPlanner.NothingId(slot)!.Value);
 
         var customizeObj = new JObject();
         if (customize is not null)
@@ -65,6 +63,16 @@ public static class GlamourerDesignBuilder
 
         return design;
     }
+
+    private static JObject Slot(ulong itemId)
+        => new()
+        {
+            ["ItemId"]     = itemId,
+            ["Stain"]      = 0,
+            ["Stain2"]     = 0,
+            ["Apply"]      = true,
+            ["ApplyStain"] = false,
+        };
 
     /// <summary>
     /// One entry of a design's "Mods" array as Glamourer writes it: name, directory, state, priority and, when the design

@@ -58,6 +58,10 @@ pieces a design should equip when it is applied.
 - [x] "Affected slots" in the editor: slot toggle chips, piece pickers for slots with alternatives, "All" to reset. IPC 1.2 exports
       the resolved `pieces` so Lamina can layer them with its own slot mask.
 
+## Clear other slots (2026-10-15)
+- [x] Per baseline / variant flag; Preview and the exported Glamourer design apply Glamourer's "Nothing" to every gear slot the
+      pieces do not fill (weapons excluded). Exported over IPC 1.3 as `clearOtherSlots`; Lamina honours and can override it.
+
 ## Verify in game
 - [ ] Mod manager adapter returns metadata (else meta.json fallback); changed-item value types classify correctly; images load.
 - [ ] Photo fetching against real mod pages (XIV Mod Archive, Heliosphere); JPG/PNG decoding.
@@ -72,4 +76,5 @@ pieces a design should equip when it is applied.
       (Xaela f0101…: Penumbra may name them "Face 101" while Glamourer's `Face` value is 5..8) — add a mapping if so.
 - [ ] `ApplyState` with the FileVersion 1 customization-only state: hair / face change immediately, gear untouched, revert
       restores; works while Lamina holds the lock (key retry).
+- [ ] "Clear other slots": Glamourer accepts the Nothing ids through SetItem and in design files; rings and ears empty as expected.
 - [ ] Eye colour swatches match the game's palette (offset in `human.cmp`); right / left applied as chosen.
