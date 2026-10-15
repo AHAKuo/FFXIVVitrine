@@ -6,14 +6,15 @@ enums as strings) so both plugins can evolve independently.
 
 | Label | Shape | Meaning |
 |---|---|---|
-| `Vitrine.ApiVersion` | `Func<(int Major, int Minor)>` | `(1, 0)`. Major changes break the contract. |
+| `Vitrine.ApiVersion` | `Func<(int Major, int Minor)>` | `(1, 1)`. Major changes break the contract; minor additions are marked below. |
 | `Vitrine.Ready` | `Action` (event) | Raised after Vitrine finished loading and the IPC is usable. |
 | `Vitrine.Disposed` | `Action` (event) | Raised when Vitrine is unloading. |
 | `Vitrine.GetDesigns` | `Func<string>` | JSON array of designs (see below), stable order. Empty array when Penumbra is missing. |
 | `Vitrine.GetDesign` | `Func<Guid, string>` | JSON object for one design, or `""` when unknown. |
 | `Vitrine.DesignsChanged` | `Action` (event) | Raised on the framework thread whenever designs or their settings changed. |
 | `Vitrine.OpenWindow` | `Action<bool?>` | `null` toggles, `true` opens, `false` closes the Vitrine window. |
-| `Vitrine.PreviewDesign` | `Func<Guid, string>` | Previews the design on the local player (mod + full-set try-on). Returns a status message. |
+| `Vitrine.PreviewDesign` | `Func<Guid, string>` | Previews the design on the local player (mod + full-set try-on + replaced emote + matching hair / face). Returns a status message. |
+| `Vitrine.ApplyDesign` | `Func<Guid, string>` | (1.1) Applies the design: mod enabled on the local player, redraw, and exactly the pieces of its `applyAction` equipped (no guessing, no emotes). Returns a status message. |
 
 ## Design JSON
 
@@ -32,12 +33,25 @@ enums as strings) so both plugins can evolve independently.
       "priority": 0,
       "settings": { "Cowkini Legs": ["Default Eve Legs"], "Extras": ["Tiger stripes"] }
     }
-  ]
+  ],
+  "applyAction": {
+    "slots": {
+      "Body": { "enabled": true,  "itemId": 1001, "itemName": "Cow Top" },
+      "Legs": { "enabled": true,  "itemId": null, "itemName": null },
+      "Feet": { "enabled": false, "itemId": 1003, "itemName": "Cow Boots" }
+    }
+  }
 }
 ```
 
 - `id` is stable across rescans: auto designs derive it from the mod directory.
 - `settings` is `null` when the design uses Penumbra's defaults for the mod.
+- `applyAction` (1.1) is the user's explicit choice of what an apply equips. `null` means the default: every equipment slot the
+  mod affects, first alternative per slot (the same plan the try-on uses). Otherwise `slots` maps a Glamourer slot name
+  (`MainHand`, `OffHand`, `Head`, `Body`, `Hands`, `Legs`, `Feet`, `Ears`, `Neck`, `Wrists`, `RFinger`, `LFinger`) to a choice:
+  `enabled: false` leaves the slot alone; `enabled: true` with an `itemId` equips that game item (`itemName` is the affected-item
+  name for readers that do not resolve ids); `enabled: true` with `itemId: null` is "none" (part of the action, nothing equipped).
+  Slots missing from the map are not touched.
 - `category` is one of Vitrine's category names (`Gear`, `Weapon`, `Accessory`, `Hair`, `Face`, `Body`, `Skin`, `Tail`,
   `Ears`, `Animation`, `Emote`, `Vfx`, `Sfx`, `Ui`, `Minion`, `Mount`, `Housing`, `Npc`, `Other`, `Unknown`).
 

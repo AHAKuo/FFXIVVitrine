@@ -2,11 +2,13 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Glamourer.Api.Enums;
 using Glamourer.Api.IpcSubscribers;
+using Newtonsoft.Json.Linq;
 
 namespace Vitrine.Glamourer;
 
 /// <summary>
-/// The small part of Glamourer Vitrine talks to: equip one item on the local player (try-on) and revert to automation.
+/// The part of Glamourer Vitrine talks to: equip one item on the local player (try-on), apply customization values
+/// (hair / face / eye colour try-on), revert to automation, and create / open designs.
 /// Glamourer is optional; every call is a no-op with a failure code while it is missing.
 /// </summary>
 public sealed class GlamourerLink : IDisposable
@@ -15,6 +17,10 @@ public sealed class GlamourerLink : IDisposable
     private readonly ApiVersion _apiVersion;
     private readonly SetItem _setItem;
     private readonly RevertToAutomation _revertToAutomation;
+    private readonly GetState _getState;
+    private readonly ApplyState _applyState;
+    private readonly AddDesign _addDesign;
+    private readonly OpenDesign _openDesign;
     private readonly IDisposable _initialized;
     private readonly IDisposable _disposed;
     private readonly IDalamudPluginInterface _pi;
@@ -29,6 +35,10 @@ public sealed class GlamourerLink : IDisposable
         _apiVersion         = new ApiVersion(pi);
         _setItem            = new SetItem(pi);
         _revertToAutomation = new RevertToAutomation(pi);
+        _getState           = new GetState(pi);
+        _applyState         = new ApplyState(pi);
+        _addDesign          = new AddDesign(pi);
+        _openDesign         = new OpenDesign(pi);
         _initialized        = Initialized.Subscriber(pi, Probe);
         _disposed           = Disposed.Subscriber(pi, OnGlamourerDisposed);
         _onPluginsChanged   = _ => Probe();
@@ -103,6 +113,88 @@ public sealed class GlamourerLink : IDisposable
         {
             _log.Warning($"Vitrine: Glamourer SetItem failed: {(ex.InnerException ?? ex).GetType().Name}: {(ex.InnerException ?? ex).Message}");
             return GlamourerApiEc.UnknownError;
+        }
+    }
+
+    /// <summary> The actor's current Glamourer state (design-base layout), or null. Retries with Lamina's key when Lamina holds the lock. </summary>
+    public JObject? GetState(int objectIndex)
+    {
+        if (!_available)
+            return null;
+
+        try
+        {
+            var (code, state) = _getState.Invoke(objectIndex);
+            if (code == GlamourerApiEc.InvalidKey)
+                (code, state) = _getState.Invoke(objectIndex, VitrineConstants.LaminaGlamourerKey);
+            return code == GlamourerApiEc.Success ? state : null;
+        }
+        catch (Exception ex)
+        {
+            _log.Debug($"Vitrine: Glamourer GetState failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Applies customize values only (hairstyle, face, tail shape, eye colours) with flags Customization | Once: shown
+    /// immediately, not persisted, no lock, equipment untouched. Identity fields are copied from the current state so
+    /// Glamourer validates the numbers for the right clan. Retries with Lamina's key on InvalidKey like <see cref="SetItem"/>.
+    /// </summary>
+    public GlamourerApiEc ApplyCustomize(int objectIndex, IReadOnlyDictionary<string, int> values)
+    {
+        if (!_available)
+            return GlamourerApiEc.UnknownError;
+
+        try
+        {
+            var state = GlamourerStateBuilder.Customize(values, GetState(objectIndex));
+            const ApplyFlag flags = ApplyFlag.Customization | ApplyFlag.Once;
+            var code = _applyState.Invoke(state, objectIndex, 0, flags);
+            if (code == GlamourerApiEc.InvalidKey)
+                code = _applyState.Invoke(state, objectIndex, VitrineConstants.LaminaGlamourerKey, flags);
+            return code;
+        }
+        catch (Exception ex)
+        {
+            _log.Warning($"Vitrine: Glamourer ApplyState failed: {(ex.InnerException ?? ex).GetType().Name}: {(ex.InnerException ?? ex).Message}");
+            return GlamourerApiEc.UnknownError;
+        }
+    }
+
+    /// <summary> Creates a design from its JSON (FileVersion 3 layout) and writes it to Glamourer's disk. </summary>
+    public GlamourerApiEc AddDesign(JObject design, string name, out Guid id)
+    {
+        id = Guid.Empty;
+        if (!_available)
+            return GlamourerApiEc.UnknownError;
+
+        try
+        {
+            return _addDesign.Invoke(design.ToString(Newtonsoft.Json.Formatting.None), name, out id);
+        }
+        catch (Exception ex)
+        {
+            _log.Warning($"Vitrine: Glamourer AddDesign failed: {(ex.InnerException ?? ex).Message}");
+            return GlamourerApiEc.UnknownError;
+        }
+    }
+
+    /// <summary> Opens Glamourer's main window on a design. </summary>
+    public bool OpenDesign(Guid id)
+    {
+        if (!_available)
+            return false;
+
+        try
+        {
+            _openDesign.Invoke(id);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.Warning($"Vitrine: Glamourer OpenDesign failed: {ex.Message}");
+            return false;
         }
     }
 

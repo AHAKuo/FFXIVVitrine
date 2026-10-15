@@ -6,52 +6,60 @@
 - [x] `/vit` window: Mods (card grid + details), Collections, Settings, About.
 - [x] Own plugin project, config directory and repo (`AHAKuo/FFXIVVitrine`); IPC for Lamina (`docs/IPC.md`); preview writes with Vitrine's own Penumbra key; released v0.1.0 and registered in ahadevtools.
 
-## Apply Action (Vitrine special)
+## Apply Action (Vitrine special) — implemented 2026-10-15
 An **Apply Action** is configured per design, in the baseline settings and in each variant. It is different from
 Try-on: Try-on guesses one item per slot to show the mod; the Apply Action is the user's explicit choice of which
 pieces a design should equip when it is applied.
 
-- [ ] **Slot control**: let the user choose which equipment slots a baseline or variant applies to (per-slot toggles,
-      default = every slot the mod affects).
-- [ ] **Piece selection**: for each enabled slot, let the user pick the exact affected item to equip (when a mod
-      offers several bodies / legs / etc.), with "none" allowed. Stored with the design and exported over IPC.
-- [ ] **Apply button** next to Preview: enable the mod with the design's settings and equip exactly the selected
-      pieces through Glamourer (no guessing, no emotes unless selected).
-- [ ] **IPC**: extend the design JSON with `applyAction` (`slots`: slot → item id / name, `enabled` flags) and bump the
-      minor API version; keep `docs/IPC.md` in sync so Lamina can read it.
-- [ ] Try-on stays as is for quick looks; "Apply" is the deliberate one.
+- [x] **Slot control**: per-slot toggles in the baseline / variant editor ("Apply action" block); default = every slot the
+      mod affects with its first piece (`ApplyPlanner.Default`), "Customise" switches to explicit slots, "Use default" goes back.
+- [x] **Piece selection**: a combo per enabled slot listing the mod's pieces for that slot plus "none"; a second ring offers
+      the left finger. Stored on `Baseline.ApplyAction` / `StoredVariant.ApplyAction`, exported as `VitrineDesign.ApplyAction`.
+- [x] **Apply button** next to Preview (and on variant cards): enables the mod with the design's settings, redraws and equips
+      exactly the planned pieces (`ApplyPlanner.Plan`; pieces the mod no longer offers are reported, not guessed); fitting
+      hair / face entries are applied too; no emotes.
+- [x] **IPC**: `applyAction` on the design JSON, new `Vitrine.ApplyDesign` gate, version `(1, 1)`, `docs/IPC.md` updated.
+- [x] Try-on stays as is for quick looks; "Apply" is the deliberate one.
 
-## "Make Glamourer design" button
-A small button next to "Copy design id" that builds a Glamourer design from this mod's output, so the user never has to
-capture the look by hand.
-- [ ] Build a Glamourer design JSON (FileVersion 3 layout, `Identifier` + `Name`): the design's selected pieces (Apply
-      Action if set, else the full-set plan) as equipment with `Apply = true`, nothing else applied, plus the mod
-      association (`Mods`: directory, name, enabled, priority, settings from the baseline / variant) so the design
-      carries the mod with it.
-- [ ] Create it through `Glamourer.Api` `AddDesign(designData, designName)` (name = "<Mod> · <Variant>"), report the new
-      design id and offer "Open in Glamourer" (`OpenDesign`).
-- [ ] Works for baselines and variants; disabled with a tooltip when Glamourer is missing or nothing is equippable.
+## "Make Glamourer design" button — implemented 2026-10-15
+- [x] `GlamourerDesignBuilder` builds the FileVersion 3 JSON: pieces (Apply Action, else full-set plan) as equipment with
+      `Apply = true`, fitting hair / face / tail values as customize with `Apply = true`, nothing else applied, and the mod
+      association (`Mods`: name, directory, `State`, priority, every option group with each option Enabled / Disabled; no
+      `Settings` when the design uses Penumbra defaults).
+- [x] Created through `AddDesign(json, "<Mod> · Baseline" / "<Mod> · <Variant>")`; the status line reports it and an
+      "Open in Glamourer" button (`OpenDesign`) appears under the design buttons.
+- [x] Button on the baseline ("Make Glamourer design") and on every variant card ("Glamourer design"); disabled with a
+      tooltip when Glamourer is missing or nothing is equippable (no pieces and no fitting customization).
 
-## Try on replaced hair (and other customization) instantly
-Hair mods list affected items like "Customization: Midlander Female Hair 194". Preview enables the mod but the
-character only shows it when wearing that hairstyle.
-- [ ] Parse customization affected items (race, clan, gender, kind: Hair / Face / Tail / Ears, number) from the name.
-- [ ] If the entry matches the player's clan and gender, make the chip clickable and have Preview apply it: Glamourer
-      `ApplyState` with a FileVersion 1 state that sets only that customization value (`Hairstyle` = 194, `Apply` = true)
-      with flags Customization | Once (not persisted, no lock; retry with Lamina's key on InvalidKey like SetItem).
-- [ ] Entries for another clan / gender are shown but disabled with a tooltip ("made for Miqo'te female"); when a mod
-      ships several variants (194 and 195), the first matching one is used for Preview and each is clickable.
-- [ ] "Revert try-on" and "End preview" revert it like gear (`RevertToAutomation`); Lamina hand-back unchanged.
-- [ ] **Eyes**: entries like "Customization: Au Ra Female Face (Iris) 1" are per-face iris textures. Parse the "(Iris)" /
-      "(Eyes)" marker and the face number; the try-on applies `Face` = N for the matching clan / gender (if the
-      character already uses that face nothing changes and the mod simply shows). Many eye packs need a base eye colour
-      ("set eyes to white when using options 1-10"): add a quick eye-colour picker in the TRY ON row (right / left for
-      odd eyes, applied with Customization | Once) so the pack can be judged without opening Glamourer.
-- [ ] Same parsing covers "(Etc)", "(Tail)", "(Ears)" markers where mods use them; unknown markers fall back to the
-      plain Face / Hair handling.
+## Try on replaced hair (and other customization) instantly — implemented 2026-10-15
+- [x] `CustomizationParser` reads "Customization: <Race> <Gender> <Part> [(Marker)] <N>" (model races as Penumbra names them:
+      Midlander, Highlander, Elezen, Lalafell, Miqo'te, Roegadyn, Au Ra, Hrothgar, Viera; clan names and the old
+      "<Race> <Clan> <Gender>" form are accepted too). Kinds: Hair → `Hairstyle`, Face → `Face`, Tail / Ears → `TailShape`.
+- [x] Entries fitting the player's race (from the customize bytes: clan byte 4, gender byte 1) are clickable chips; Preview
+      and Apply apply the first fitting entry per kind through `ApplyState` (FileVersion 1 state, only that value applied,
+      identity copied unapplied so Glamourer validates against the right clan; flags Customization | Once; Lamina-key retry on
+      InvalidKey).
+- [x] Entries for another race / gender are greyed out with "Made for Au Ra female; your character is …"; several variants
+      (194 and 195) are each clickable, Preview uses the first.
+- [x] "Revert try-on" and "End preview" revert via `RevertToAutomation` (customization included); Lamina hand-back unchanged.
+- [x] **Eyes**: "(Iris)" / "(Eyes)" markers are parsed; the chip sets `Face` = N. "Eye colour…" in the TRY ON row opens a
+      192-swatch picker (colours from `human.cmp`, current values outlined) with Both / Right / Left for odd eyes, applied with
+      Customization | Once.
+- [x] "(Tail)" / "(Ears)" markers switch the kind; other markers ("(Etc)") keep the plain Face / Hair handling. Body entries
+      parse but have no Glamourer value (texture only) and stay in the summary chip.
 
 ## Verify in game
 - [ ] Mod manager adapter returns metadata (else meta.json fallback); changed-item value types classify correctly; images load.
 - [ ] Photo fetching against real mod pages (XIV Mod Archive, Heliosphere); JPG/PNG decoding.
 - [ ] `ExecuteEmote` argument semantics for emote previews.
 - [ ] Penumbra accepting an empty settings dictionary as "defaults" for previews.
+- [ ] Apply Action editor: slots and pieces listed per mod; "none" and disabled slots respected by Apply; variants inherit the
+      baseline's action on creation.
+- [ ] `AddDesign` accepts the generated JSON (mod association without option `Identifier`s: Glamourer should match groups
+      and options by name; if it rejects or drops them, read the ids from Penumbra and add them). Design shows in Glamourer's
+      list and "Open in Glamourer" selects it.
+- [ ] Customization names as Penumbra really emits them for hair, face, tail, ears, iris; face numbers for second clans
+      (Xaela f0101…: Penumbra may name them "Face 101" while Glamourer's `Face` value is 5..8) — add a mapping if so.
+- [ ] `ApplyState` with the FileVersion 1 customization-only state: hair / face change immediately, gear untouched, revert
+      restores; works while Lamina holds the lock (key retry).
+- [ ] Eye colour swatches match the game's palette (offset in `human.cmp`); right / left applied as chosen.

@@ -18,6 +18,7 @@ public sealed class VitrineIpc : IDisposable
     public const string LabelDesignsChanged = "Vitrine.DesignsChanged";
     public const string LabelOpenWindow     = "Vitrine.OpenWindow";
     public const string LabelPreviewDesign  = "Vitrine.PreviewDesign";
+    public const string LabelApplyDesign    = "Vitrine.ApplyDesign";
 
     private readonly VitrineModule _module;
     private readonly IPluginLog _log;
@@ -29,6 +30,7 @@ public sealed class VitrineIpc : IDisposable
     private readonly ICallGateProvider<object> _designsChanged;
     private readonly ICallGateProvider<bool?, object> _openWindow;
     private readonly ICallGateProvider<Guid, string> _previewDesign;
+    private readonly ICallGateProvider<Guid, string> _applyDesign;
 
     public VitrineIpc(IDalamudPluginInterface pi, VitrineModule module, IPluginLog log)
     {
@@ -43,12 +45,14 @@ public sealed class VitrineIpc : IDisposable
         _designsChanged = pi.GetIpcProvider<object>(LabelDesignsChanged);
         _openWindow     = pi.GetIpcProvider<bool?, object>(LabelOpenWindow);
         _previewDesign  = pi.GetIpcProvider<Guid, string>(LabelPreviewDesign);
+        _applyDesign    = pi.GetIpcProvider<Guid, string>(LabelApplyDesign);
 
         _apiVersion.RegisterFunc(() => VitrineConstants.IpcVersion);
         _getDesigns.RegisterFunc(GetDesigns);
         _getDesign.RegisterFunc(GetDesign);
         _openWindow.RegisterAction(OpenWindow);
         _previewDesign.RegisterFunc(PreviewDesign);
+        _applyDesign.RegisterFunc(ApplyDesign);
 
         _module.CatalogChanged += OnDesignsChanged;
         _ready.SendMessage();
@@ -105,6 +109,19 @@ public sealed class VitrineIpc : IDisposable
         }
     }
 
+    private string ApplyDesign(Guid id)
+    {
+        try
+        {
+            return _module.ApplyDesign(id);
+        }
+        catch (Exception ex)
+        {
+            _log.Warning($"Vitrine: IPC ApplyDesign failed: {ex.Message}");
+            return $"Apply failed: {ex.Message}";
+        }
+    }
+
     private void OnDesignsChanged()
     {
         try
@@ -134,5 +151,6 @@ public sealed class VitrineIpc : IDisposable
         _getDesign.UnregisterFunc();
         _openWindow.UnregisterAction();
         _previewDesign.UnregisterFunc();
+        _applyDesign.UnregisterFunc();
     }
 }

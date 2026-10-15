@@ -11,8 +11,9 @@ namespace Vitrine.TryOn;
 
 /// <summary>
 /// Shows a design on the local player: writes the mod's temporary settings into the player's collection (Vitrine's key),
-/// redraws, equips a full set of the mod's affected gear through Glamourer and plays replaced emotes.
-/// Everything runs on the framework thread (called from ImGui draws and IPC).
+/// redraws, equips a full set of the mod's affected gear through Glamourer, applies matching hair / face customizations
+/// and plays replaced emotes. "Apply" is the deliberate sibling: the same mod enabling plus exactly the design's Apply
+/// Action pieces, nothing guessed. Everything runs on the framework thread (called from ImGui draws and IPC).
 /// Ending a preview can hand the character back to Lamina (ask it to re-apply its design) when that setting is on.
 /// </summary>
 public sealed class PreviewService
@@ -55,8 +56,79 @@ public sealed class PreviewService
     public bool CanPreview
         => _penumbra.Available && HasPlayer();
 
-    /// <summary> Enables the design's mods on the player, redraws, equips a full set and plays replaced emotes. </summary>
+    /// <summary> True when Glamourer is loaded (designs can be created without a character). </summary>
+    public bool GlamourerAvailable
+        => _glamourer.Available;
+
+    // ---- preview / apply -----------------------------------------------------------------------------------------
+
+    /// <summary> Enables the design's mods on the player, redraws, equips a full set, applies matching customizations and plays replaced emotes. </summary>
     public string PreviewDesign(VitrineDesign design, ModInformation? info)
+    {
+        if (EnableMods(design) is { } error)
+            return error;
+
+        _penumbra.RedrawObject(VitrineConstants.LocalPlayerIndex);
+        var message = new StringBuilder("Mod enabled on you and redrawn.");
+        if (info is not null)
+        {
+            Append(message, TryOnFullSet(info, quiet: true));
+            Append(message, TryOnCustomizations(info, quiet: true));
+            Append(message, PlayEmotes(info));
+        }
+
+        return message.ToString();
+    }
+
+    /// <summary>
+    /// Applies the design: enables its mods with the design's settings, redraws, and equips exactly the pieces its Apply
+    /// Action names (the full-set plan when it has none). Matching hair / face customizations are applied too; emotes are not played.
+    /// </summary>
+    public string ApplyDesign(VitrineDesign design, ModInformation? info)
+    {
+        if (EnableMods(design) is { } error)
+            return error;
+
+        _penumbra.RedrawObject(VitrineConstants.LocalPlayerIndex);
+        var message = new StringBuilder("Mod enabled on you and redrawn.");
+        if (info is null)
+            return message.ToString();
+
+        if (!_glamourer.Available)
+        {
+            Append(message, "Glamourer not loaded: pieces not equipped.");
+            return message.ToString();
+        }
+
+        var plan = ApplyPlanner.Plan(design.ApplyAction, info.AffectedItems, _items);
+        if (plan.Items.Count > 0)
+        {
+            var equipped = 0;
+            GlamourerApiEc? lastError = null;
+            foreach (var item in plan.Items)
+            {
+                var code = _glamourer.SetItem(VitrineConstants.LocalPlayerIndex, item.Slot, item.ItemId);
+                if (code is GlamourerApiEc.Success or GlamourerApiEc.NothingDone)
+                    equipped++;
+                else
+                    lastError = code;
+            }
+
+            Append(message, $"Applied {equipped} of {plan.Items.Count} piece(s){(lastError is { } e ? $" (Glamourer: {e})" : string.Empty)}.");
+        }
+        else if (design.ApplyAction is not null)
+        {
+            Append(message, "The apply action equips nothing.");
+        }
+
+        if (plan.Missing.Count > 0)
+            Append(message, $"{plan.Missing.Count} chosen piece(s) the mod no longer offers were skipped.");
+        Append(message, TryOnCustomizations(info, quiet: true));
+        return message.ToString();
+    }
+
+    /// <summary> Writes the design's mods as temporary settings into the player's collection. Null on success, else the message. </summary>
+    private string? EnableMods(VitrineDesign design)
     {
         if (!_penumbra.Available)
             return "Penumbra is not available.";
@@ -75,24 +147,12 @@ public sealed class PreviewService
             _previewed.Add(mod.ModDirectory);
         }
 
-        _penumbra.RedrawObject(VitrineConstants.LocalPlayerIndex);
-        var message = new StringBuilder("Mod enabled on you and redrawn.");
-        if (info is not null)
-        {
-            var gear = TryOnFullSet(info, quiet: true);
-            if (gear.Length > 0)
-                message.Append(' ').Append(gear);
-            var emote = PlayEmotes(info);
-            if (emote.Length > 0)
-                message.Append(' ').Append(emote);
-        }
-
-        return message.ToString();
+        return null;
     }
 
     /// <summary>
-    /// Ends a preview as one action: removes the design's mods' preview settings from the player, reverts the gear try-on
-    /// (Glamourer automation), redraws, then hands the look back to Lamina when the setting is on.
+    /// Ends a preview as one action: removes the design's mods' preview settings from the player, reverts the gear and
+    /// customization try-on (Glamourer automation), redraws, then hands the look back to Lamina when the setting is on.
     /// </summary>
     public string EndPreview(VitrineDesign design)
     {
@@ -139,6 +199,8 @@ public sealed class PreviewService
             _penumbra.RedrawObject(VitrineConstants.LocalPlayerIndex);
         return _handBack.Append(code is PenumbraApiEc.Success or PenumbraApiEc.NothingChanged ? "All previews removed" : $"Penumbra returned {code}");
     }
+
+    // ---- gear try-on ---------------------------------------------------------------------------------------------
 
     /// <summary> Equips one affected item by name. </summary>
     public string TryOnItem(string name)
@@ -191,6 +253,191 @@ public sealed class PreviewService
         return sb.ToString();
     }
 
+    /// <summary> The pieces a mod offers per equipment slot (for the Apply Action editor). </summary>
+    public IReadOnlyList<SlotCandidates> ApplyCandidates(ModInformation mod)
+        => ApplyPlanner.Candidates(mod.AffectedItems, _items);
+
+    /// <summary> What an apply of the design would equip. </summary>
+    public ApplyPlan PlanApply(VitrineDesign design, ModInformation mod)
+        => ApplyPlanner.Plan(design.ApplyAction, mod.AffectedItems, _items);
+
+    // ---- customization try-on ------------------------------------------------------------------------------------
+
+    /// <summary> The player's clan (1..16) and gender (0 male, 1 female) from the character's customize bytes. False without a player. </summary>
+    public bool TryGetPlayerIdentity(out int clan, out int gender)
+    {
+        clan   = 0;
+        gender = 0;
+        if (!HasPlayer())
+            return false;
+
+        try
+        {
+            if (_objects.LocalPlayer is not { } player)
+                return false;
+            var bytes = player.Customize;
+            if (bytes.Length < 26)
+                return false;
+
+            clan   = bytes[4];
+            gender = bytes[1] == 0 ? 0 : 1;
+            return clan is >= 1 and <= 16;
+        }
+        catch (Exception ex)
+        {
+            _log.Debug($"Vitrine: customize bytes unavailable: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary> The player's current eye colour values (right, left) for the picker's highlight. False without a player. </summary>
+    public bool TryGetPlayerEyeColors(out int right, out int left)
+    {
+        right = 0;
+        left  = 0;
+        if (!HasPlayer())
+            return false;
+
+        try
+        {
+            if (_objects.LocalPlayer is not { } player)
+                return false;
+            var bytes = player.Customize;
+            if (bytes.Length < 26)
+                return false;
+
+            right = bytes[9];
+            left  = bytes[15];
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The customization entries of a mod that fit the player (first one per Glamourer key, so a mod shipping hair 194 and
+    /// 195 contributes 194). Empty without a player.
+    /// </summary>
+    public IReadOnlyList<CustomizationEntry> MatchingCustomizations(ModInformation mod)
+    {
+        if (!TryGetPlayerIdentity(out var clan, out var gender))
+            return Array.Empty<CustomizationEntry>();
+
+        var seen   = new HashSet<string>();
+        var result = new List<CustomizationEntry>();
+        foreach (var entry in CustomizationParser.ParseAll(mod.AffectedItems))
+        {
+            if (entry.GlamourerKey is not { } key || !entry.Matches(clan, gender) || !seen.Add(key))
+                continue;
+            result.Add(entry);
+        }
+
+        return result;
+    }
+
+    /// <summary> Applies the mod's matching hair / face / tail entries (one per kind) through Glamourer, once, unlocked. </summary>
+    public string TryOnCustomizations(ModInformation mod, bool quiet = false)
+    {
+        if (!_glamourer.Available)
+            return quiet ? string.Empty : "Glamourer is not available.";
+        if (!HasPlayer())
+            return quiet ? string.Empty : "No character to try on.";
+
+        var matching = MatchingCustomizations(mod);
+        if (matching.Count == 0)
+            return quiet ? string.Empty : "No hair, face, tail or ears entry fits your character.";
+
+        var values = matching.ToDictionary(e => e.GlamourerKey!, e => e.Value);
+        var code   = _glamourer.ApplyCustomize(VitrineConstants.LocalPlayerIndex, values);
+        return code is GlamourerApiEc.Success or GlamourerApiEc.NothingDone
+            ? $"Applied {string.Join(", ", matching.Select(e => e.ShortLabel))}."
+            : $"Glamourer returned {code} for {string.Join(", ", matching.Select(e => e.ShortLabel))}.";
+    }
+
+    /// <summary> Applies one customization entry (a clicked chip). </summary>
+    public string TryOnCustomization(CustomizationEntry entry)
+    {
+        if (!_glamourer.Available)
+            return "Glamourer is not available.";
+        if (!TryGetPlayerIdentity(out var clan, out var gender))
+            return "No character to try on.";
+        if (entry.GlamourerKey is not { } key)
+            return $"{entry.ShortLabel} is a texture, not a value Glamourer can set: preview the mod to see it.";
+        if (!entry.Matches(clan, gender))
+            return $"{entry.ShortLabel} is made for {entry.RaceName} {entry.GenderName}; your character is {CustomizationParser.ClanName(clan)} {(gender == 0 ? "male" : "female")}.";
+
+        var code = _glamourer.ApplyCustomize(VitrineConstants.LocalPlayerIndex, new Dictionary<string, int> { [key] = entry.Value });
+        return code is GlamourerApiEc.Success or GlamourerApiEc.NothingDone
+            ? $"Applied {entry.ShortLabel}."
+            : $"Glamourer returned {code} for {entry.ShortLabel}.";
+    }
+
+    /// <summary> Sets the eye colour (0..191) on the right and / or left eye, once, unlocked. </summary>
+    public string TryOnEyeColor(int value, bool right, bool left)
+    {
+        if (!_glamourer.Available)
+            return "Glamourer is not available.";
+        if (!HasPlayer())
+            return "No character to try on.";
+        if (!right && !left)
+            return "Pick an eye.";
+
+        var values = new Dictionary<string, int>();
+        if (right)
+            values["EyeColorRight"] = value;
+        if (left)
+            values["EyeColorLeft"] = value;
+        var code = _glamourer.ApplyCustomize(VitrineConstants.LocalPlayerIndex, values);
+        var which = right && left ? "both eyes" : right ? "right eye" : "left eye";
+        return code is GlamourerApiEc.Success or GlamourerApiEc.NothingDone
+            ? $"Eye colour {value} on {which}."
+            : $"Glamourer returned {code} for the eye colour.";
+    }
+
+    // ---- Glamourer designs ---------------------------------------------------------------------------------------
+
+    /// <summary> True when a Glamourer design made from the design would apply at least one piece or customization. </summary>
+    public bool CanMakeGlamourerDesign(VitrineDesign design, ModInformation mod)
+        => PlanApply(design, mod).Items.Count > 0 || MatchingCustomizations(mod).Count > 0;
+
+    /// <summary>
+    /// Builds a Glamourer design from the Vitrine design (its Apply Action pieces or the full-set plan, matching hair / face
+    /// values, and the mod association with the design's settings) and creates it through Glamourer.
+    /// </summary>
+    public string MakeGlamourerDesign(VitrineDesign design, ModInformation mod, out Guid created)
+    {
+        created = Guid.Empty;
+        if (!_glamourer.Available)
+            return "Glamourer is not available.";
+
+        var plan      = PlanApply(design, mod);
+        var customize = MatchingCustomizations(mod).ToDictionary(e => e.GlamourerKey!, e => e.Value);
+        if (plan.Items.Count == 0 && customize.Count == 0)
+            return "Nothing to put in a design: this mod has no equippable pieces or matching customization.";
+
+        var state = design.Mods.Count > 0 ? design.Mods[0] : null;
+        var name  = design.IsAuto ? $"{mod.Name} · Baseline" : $"{mod.Name} · {design.Name}";
+        var json  = GlamourerDesignBuilder.Build(name, $"Created by Vitrine from the mod \"{mod.Name}\".", plan.Items, customize, state, mod.AvailableSettings);
+        var code  = _glamourer.AddDesign(json, name, out created);
+        if (code != GlamourerApiEc.Success)
+            return $"Glamourer returned {code} while creating the design.";
+
+        var parts = new List<string>();
+        if (plan.Items.Count > 0)
+            parts.Add($"{plan.Items.Count} piece(s)");
+        if (customize.Count > 0)
+            parts.Add(string.Join(", ", customize.Keys));
+        return $"Glamourer design \"{name}\" created with {string.Join(" and ", parts)} and the mod attached.";
+    }
+
+    /// <summary> Opens a design in Glamourer's window. </summary>
+    public string OpenGlamourerDesign(Guid id)
+        => _glamourer.OpenDesign(id) ? "Opened in Glamourer." : "Glamourer is not available.";
+
+    // ---- emotes --------------------------------------------------------------------------------------------------
+
     /// <summary> Plays the first replaced emote of the mod, if any. </summary>
     public string PlayEmotes(ModInformation mod)
     {
@@ -219,6 +466,12 @@ public sealed class PreviewService
         return _handBack.Append(code is GlamourerApiEc.Success or GlamourerApiEc.NothingDone
             ? "Reverted to Glamourer automation"
             : $"Glamourer returned {code} (a state locked by another plugin cannot be reverted from here)");
+    }
+
+    private static void Append(StringBuilder message, string part)
+    {
+        if (part.Length > 0)
+            message.Append(' ').Append(part);
     }
 
     private bool HasPlayer()

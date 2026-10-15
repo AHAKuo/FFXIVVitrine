@@ -20,6 +20,8 @@ public sealed class Baseline
 {
     public int Priority { get; set; }
     public Dictionary<string, List<string>>? Settings { get; set; }
+    /// <summary> Explicit pieces to equip on apply; null = every affected slot. </summary>
+    public ApplyAction? ApplyAction { get; set; }
 }
 
 /// <summary> A user created variant of an auto design. </summary>
@@ -32,6 +34,8 @@ public sealed class StoredVariant
     public bool Enabled { get; set; } = true;
     public int Priority { get; set; }
     public Dictionary<string, List<string>>? Settings { get; set; }
+    /// <summary> Explicit pieces to equip on apply; null = every affected slot. </summary>
+    public ApplyAction? ApplyAction { get; set; }
 }
 
 /// <summary>
@@ -139,6 +143,7 @@ public sealed class VitrineDesignStore
             Name         = string.IsNullOrWhiteSpace(name) ? $"{auto?.Name ?? modDirectory} · Variant" : name,
             Priority     = baseline?.Priority ?? 0,
             Settings     = baseline?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()),
+            ApplyAction  = CloneAction(baseline?.ApplyAction),
         };
         _file.Variants.Add(variant);
         Save();
@@ -147,7 +152,9 @@ public sealed class VitrineDesignStore
     }
 
     /// <summary> Updates a variant in place and saves. Returns false when the id is not a variant. </summary>
-    public bool UpdateVariant(Guid id, string? name = null, bool? enabled = null, int? priority = null, Dictionary<string, List<string>>? settings = null, bool clearSettings = false)
+    /// <param name="applyAction"> New apply action; <paramref name="clearApplyAction"/> resets it to the default (null). </param>
+    public bool UpdateVariant(Guid id, string? name = null, bool? enabled = null, int? priority = null, Dictionary<string, List<string>>? settings = null, bool clearSettings = false,
+        ApplyAction? applyAction = null, bool clearApplyAction = false)
     {
         var variant = _file.Variants.FirstOrDefault(v => v.Id == id);
         if (variant is null)
@@ -158,6 +165,8 @@ public sealed class VitrineDesignStore
         if (priority is { } p) variant.Priority = p;
         if (clearSettings) variant.Settings = null;
         else if (settings is not null) variant.Settings = settings;
+        if (clearApplyAction) variant.ApplyAction = null;
+        else if (applyAction is not null) variant.ApplyAction = applyAction;
         Save();
         Rebuild();
         return true;
@@ -201,6 +210,7 @@ public sealed class VitrineDesignStore
                         Settings     = baseline?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()),
                     },
                 },
+                ApplyAction = CloneAction(baseline?.ApplyAction),
             };
             list.Add(design);
             _byId[design.Id]               = design;
@@ -228,6 +238,7 @@ public sealed class VitrineDesignStore
                         Settings     = variant.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()),
                     },
                 },
+                ApplyAction = CloneAction(variant.ApplyAction),
             };
             list.Add(design);
             _byId[design.Id] = design;
@@ -235,5 +246,17 @@ public sealed class VitrineDesignStore
 
         _designs = list;
         Changed?.Invoke();
+    }
+
+    /// <summary> Deep copy so designs handed out never alias the stored file. </summary>
+    public static ApplyAction? CloneAction(ApplyAction? action)
+    {
+        if (action is null)
+            return null;
+
+        var copy = new ApplyAction();
+        foreach (var (slot, choice) in action.Slots)
+            copy.Slots[slot] = new ApplySlot { Enabled = choice.Enabled, ItemId = choice.ItemId, ItemName = choice.ItemName };
+        return copy;
     }
 }

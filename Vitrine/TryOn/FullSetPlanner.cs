@@ -18,7 +18,8 @@ public sealed record FullSetPlan(
 /// </summary>
 public static class FullSetPlanner
 {
-    private static readonly ApiEquipSlot[] SlotOrder =
+    /// <summary> Slot order of plans. </summary>
+    public static readonly ApiEquipSlot[] SlotOrder =
     {
         ApiEquipSlot.MainHand, ApiEquipSlot.OffHand, ApiEquipSlot.Head, ApiEquipSlot.Body, ApiEquipSlot.Hands,
         ApiEquipSlot.Legs, ApiEquipSlot.Feet, ApiEquipSlot.Ears, ApiEquipSlot.Neck, ApiEquipSlot.Wrists,
@@ -34,7 +35,7 @@ public static class FullSetPlanner
 
         foreach (var entry in affected)
         {
-            if (!ModClassifierIsGear(entry.Category))
+            if (!IsGearCategory(entry.Category))
                 continue;
 
             if (!resolver.TryResolve(entry.Name, out var item))
@@ -61,6 +62,7 @@ public static class FullSetPlanner
         return new FullSetPlan(ordered, unresolved, alternatives);
     }
 
-    private static bool ModClassifierIsGear(VitrineCategory category)
+    /// <summary> Categories whose affected items may resolve to equippable gear. </summary>
+    public static bool IsGearCategory(VitrineCategory category)
         => category is VitrineCategory.Gear or VitrineCategory.Weapon or VitrineCategory.Accessory or VitrineCategory.Unknown or VitrineCategory.Other;
 }

@@ -58,6 +58,7 @@ public sealed class VitrineModule : IDisposable
             () => Settings.FetchPhotosFromModPages,
             m => log.Warning(m),
             m => log.Debug(m));
+        EyeColors = new EyeColorTable(data, log);
         Preview = new PreviewService(Reader, Glamourer, new ItemResolver(data, log), new EmotePlayer(data, condition, clientState, log),
             clientState, objects, framework, log, Lamina, () => Settings.HandBackToLamina);
 
@@ -110,6 +111,9 @@ public sealed class VitrineModule : IDisposable
 
     /// <summary> Previews, try-on and emote playback. </summary>
     public PreviewService Preview { get; }
+
+    /// <summary> The game's eye colours for the try-on picker. </summary>
+    public EyeColorTable EyeColors { get; }
 
     /// <summary> False while Penumbra is unavailable. </summary>
     public bool Available
@@ -174,8 +178,9 @@ public sealed class VitrineModule : IDisposable
         => DesignStore.CreateVariant(modDirectory, name);
 
     /// <summary> Updates a variant. </summary>
-    public bool UpdateVariant(Guid id, string? name = null, bool? enabled = null, int? priority = null, Dictionary<string, List<string>>? settings = null, bool clearSettings = false)
-        => DesignStore.UpdateVariant(id, name, enabled, priority, settings, clearSettings);
+    public bool UpdateVariant(Guid id, string? name = null, bool? enabled = null, int? priority = null, Dictionary<string, List<string>>? settings = null, bool clearSettings = false,
+        ApplyAction? applyAction = null, bool clearApplyAction = false)
+        => DesignStore.UpdateVariant(id, name, enabled, priority, settings, clearSettings, applyAction, clearApplyAction);
 
     /// <summary> Deletes a variant. </summary>
     public bool DeleteVariant(Guid id)
@@ -195,6 +200,19 @@ public sealed class VitrineModule : IDisposable
     /// <summary> IPC entry: preview by id. </summary>
     public string PreviewDesign(Guid id)
         => GetDesign(id) is { } design ? PreviewDesign(design) : "Unknown design.";
+
+    /// <summary> Applies the design on the player: mod enabled + redraw + exactly the Apply Action's pieces (no guessing, no emotes). </summary>
+    public string ApplyDesign(VitrineDesign design)
+    {
+        var info    = design.Mods.Count > 0 ? Catalog.Get(design.Mods[0].ModDirectory) : null;
+        var message = Preview.ApplyDesign(design, info);
+        RequestCollectionRefresh();
+        return message;
+    }
+
+    /// <summary> IPC entry: apply by id. </summary>
+    public string ApplyDesign(Guid id)
+        => GetDesign(id) is { } design ? ApplyDesign(design) : "Unknown design.";
 
     /// <summary> Removes a previewed mod's temporary setting from the player. </summary>
     public string ClearPreview(string modDirectory)

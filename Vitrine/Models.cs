@@ -1,3 +1,5 @@
+using Glamourer.Api.Enums;
+
 namespace Vitrine;
 
 /// <summary> What a mod changes, as Vitrine classifies it from Penumbra's changed items. </summary>
@@ -54,6 +56,35 @@ public sealed class VitrineDesign
     public VitrineCategory Category { get; set; }
     /// <summary> Usually one mod (the design's own). </summary>
     public List<VitrineModState> Mods { get; set; } = new();
+
+    /// <summary>
+    /// The user's explicit choice of which pieces to equip when the design is applied. Null = default: every slot the mod
+    /// affects, first alternative per slot (the same plan Try-on uses).
+    /// </summary>
+    public ApplyAction? ApplyAction { get; set; }
+}
+
+/// <summary>
+/// Apply Action of a design: which equipment slots an apply touches and which affected item each one equips. Different from
+/// Try-on, which guesses one item per slot; this is deliberate, stored with the design and shared over IPC.
+/// </summary>
+public sealed class ApplyAction
+{
+    /// <summary> Slot → choice. A slot the mod affects but that is missing here is not touched. </summary>
+    public Dictionary<ApiEquipSlot, ApplySlot> Slots { get; set; } = new();
+}
+
+/// <summary> One slot of an <see cref="ApplyAction"/>. </summary>
+public sealed class ApplySlot
+{
+    /// <summary> False = the apply leaves this slot alone. </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary> Game item id of the affected item to equip; null = "none" (the slot is part of the action but nothing is equipped). </summary>
+    public ulong? ItemId { get; set; }
+
+    /// <summary> Display name of that item (the affected-item name), for readers that do not resolve ids. </summary>
+    public string? ItemName { get; set; }
 }
 
 /// <summary> Read focused view of one Penumbra mod. </summary>

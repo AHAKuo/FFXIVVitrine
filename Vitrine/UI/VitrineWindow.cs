@@ -9,6 +9,7 @@ using Penumbra.Api.Enums;
 using Vitrine.Catalog;
 using Vitrine.Designs;
 using Vitrine.Photos;
+using Vitrine.TryOn;
 
 namespace Vitrine.UI;
 
@@ -41,6 +42,8 @@ public sealed class VitrineWindow : Window, IDisposable
     private Guid? _editingVariant;
     private readonly Dictionary<string, Baseline> _baselineDrafts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<Guid, StoredVariantDraft> _variantDrafts = new();
+    private Guid? _lastGlamourerDesign;
+    private int _eyeTarget;
     private List<ModInformation> _visible = new();
     private int _visibleVersion = -1;
     private int _catalogVersion;
@@ -546,7 +549,8 @@ public sealed class VitrineWindow : Window, IDisposable
         ImGui.Spacing();
         if (auto is not null)
         {
-            if (ImGui.Button("Copy design id", new Vector2(ImGui.GetContentRegionAvail().X * 0.5f - 4 * scale, 0)))
+            var half = new Vector2(ImGui.GetContentRegionAvail().X * 0.5f - 4 * scale, 0);
+            if (ImGui.Button("Copy design id", half))
             {
                 ImGui.SetClipboardText(auto.Id.ToString());
                 SetStatus("Design id copied. Lamina lists Vitrine designs by name; the id is for other tools.");
@@ -555,20 +559,40 @@ public sealed class VitrineWindow : Window, IDisposable
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip("Copies the design id to the clipboard.");
             ImGui.SameLine();
+            DrawMakeGlamourerDesignButton(mod, auto, "Make Glamourer design", new Vector2(ImGui.GetContentRegionAvail().X, 0));
+
             using (ImRaii.Disabled(!_module.Preview.CanPreview))
             {
-                if (ImGui.Button("Preview on character", new Vector2(ImGui.GetContentRegionAvail().X, 0)))
+                if (ImGui.Button("Preview on character", half))
                     SetStatus(_module.PreviewDesign(auto));
             }
 
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                 ImGui.SetTooltip(_module.Preview.CanPreview
-                    ? "Enables the mod on you (temporary Penumbra setting), redraws, equips one affected item per slot through Glamourer\nand plays the replaced emote, so you can see the whole look and save it as a Glamourer design."
+                    ? "Quick look: enables the mod on you (temporary Penumbra setting), redraws, equips one affected item per slot through Glamourer,\napplies hair / face entries that fit your character and plays the replaced emote."
+                    : "Needs Penumbra and a logged-in character.");
+            ImGui.SameLine();
+            using (ImRaii.Disabled(!_module.Preview.CanPreview))
+            {
+                if (ImGui.Button("Apply", new Vector2(ImGui.GetContentRegionAvail().X, 0)))
+                    SetStatus(_module.ApplyDesign(auto));
+            }
+
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(_module.Preview.CanPreview
+                    ? $"Deliberate: enables the mod with the baseline settings and equips exactly the apply action\u2019s pieces ({ApplyPlanner.Describe(auto.ApplyAction)}).\nNo guessing, no emotes. Edit the baseline to choose slots and pieces."
                     : "Needs Penumbra and a logged-in character.");
             if (ImGui.Button("End preview", new Vector2(ImGui.GetContentRegionAvail().X, 0)))
                 SetStatus(_module.EndPreview(auto));
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Removes this mod's preview from you, reverts the gear try-on and hands your look back to Lamina if it is installed.");
+                ImGui.SetTooltip("Removes this mod's preview from you, reverts the gear and hair / face try-on and hands your look back to Lamina if it is installed.");
+            if (_lastGlamourerDesign is { } created)
+            {
+                if (ImGui.Button("Open in Glamourer", new Vector2(ImGui.GetContentRegionAvail().X, 0)))
+                    SetStatus(_module.Preview.OpenGlamourerDesign(created));
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Opens the design Vitrine just created in Glamourer's window.");
+            }
         }
 
         if (DateTime.UtcNow < _statusUntil)
@@ -588,17 +612,24 @@ public sealed class VitrineWindow : Window, IDisposable
             ImGui.TextColored(Color(MutedText), "–");
     }
 
-    /// <summary> Gear and emote mods only show when worn or played: buttons try the whole set on or play the replaced emote. </summary>
+    /// <summary>
+    /// Gear, hair / face and emote mods only show when worn, applied or played: buttons try the whole set on, apply the
+    /// fitting customization entries, pick a base eye colour or play the replaced emote.
+    /// </summary>
     private void DrawTryOnRow(ModInformation mod)
     {
-        var hasGear  = mod.AffectedItems.Any(i => ModClassifier.IsEquippable(i.Category));
-        var hasEmote = mod.AffectedItems.Any(i => i.Category == VitrineCategory.Emote);
-        if (!hasGear && !hasEmote)
+        var hasGear   = mod.AffectedItems.Any(i => ModClassifier.IsEquippable(i.Category));
+        var hasEmote  = mod.AffectedItems.Any(i => i.Category == VitrineCategory.Emote);
+        var entries   = CustomizationParser.ParseAll(mod.AffectedItems);
+        var hasCustom = entries.Any(e => e.GlamourerKey is not null);
+        var hasEyes   = entries.Any(e => e.IsEyes);
+        if (!hasGear && !hasEmote && !hasCustom)
             return;
 
         var can = _module.Preview.CanTryOn;
         using var id = ImRaii.PushId("tryon");
         SectionLabel("TRY ON");
+        var first = true;
         if (hasGear)
         {
             using (ImRaii.Disabled(!can))
@@ -611,6 +642,31 @@ public sealed class VitrineWindow : Window, IDisposable
                 ImGui.SetTooltip(can
                     ? "Equips one affected item per equipment slot through Glamourer so the whole look shows. Click a single item above to equip just that piece."
                     : "Needs Glamourer and a logged-in character.");
+            first = false;
+        }
+
+        if (hasCustom)
+        {
+            if (!first)
+                ImGui.SameLine();
+            var matching = _module.Preview.MatchingCustomizations(mod);
+            using (ImRaii.Disabled(!can || matching.Count == 0))
+            {
+                if (ImGui.SmallButton("Try hair / face"))
+                    SetStatus(_module.Preview.TryOnCustomizations(mod));
+            }
+
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(!can
+                    ? "Needs Glamourer and a logged-in character."
+                    : matching.Count == 0
+                        ? "No hair, face, tail or ears entry of this mod fits your character's race and gender."
+                        : $"Applies {string.Join(", ", matching.Select(e => e.ShortLabel))} through Glamourer (once, not saved) so the replaced model shows on you.");
+            first = false;
+        }
+
+        if (hasGear || hasCustom)
+        {
             ImGui.SameLine();
             using (ImRaii.Disabled(!can))
             {
@@ -619,12 +675,18 @@ public sealed class VitrineWindow : Window, IDisposable
             }
 
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                ImGui.SetTooltip("Reverts gear only; the mod preview stays. Hands the look back to Lamina if that setting is on.");
+                ImGui.SetTooltip("Reverts gear and hair / face only; the mod preview stays. Hands the look back to Lamina if that setting is on.");
+        }
+
+        if (hasEyes)
+        {
+            ImGui.SameLine();
+            DrawEyeColorPicker(can);
         }
 
         if (hasEmote)
         {
-            if (hasGear)
+            if (!first)
                 ImGui.SameLine();
             if (ImGui.SmallButton("Play replaced emote"))
                 SetStatus(_module.Preview.PlayEmotes(mod) is { Length: > 0 } m ? m : "No playable emote found in this mod.");
@@ -633,20 +695,37 @@ public sealed class VitrineWindow : Window, IDisposable
         }
     }
 
-    /// <summary> Affected items as chips. Equippable items and emotes are clickable: click to equip or play just that one. </summary>
+    /// <summary>
+    /// Affected items as chips. Equippable items and emotes are clickable: click to equip or play just that one. Hair / face /
+    /// tail / ears entries are chips of their own: clickable when they fit your character, greyed out with a reason otherwise.
+    /// </summary>
     private void DrawAffectedChips(IReadOnlyList<AffectedItem> items)
     {
-        var scale = ImGuiHelpers.GlobalScale;
-        var shown = 0;
-        var groups = items.GroupBy(i => i.Category).OrderBy(g => g.Key).ToList();
+        var scale       = ImGuiHelpers.GlobalScale;
+        var shown       = 0;
+        var groups      = items.GroupBy(i => i.Category).OrderBy(g => g.Key).ToList();
+        var can         = _module.Preview.CanTryOn;
+        var hasIdentity = _module.Preview.TryGetPlayerIdentity(out var clan, out var gender);
         foreach (var group in groups)
         {
             var clickable = ModClassifier.IsEquippable(group.Key) || group.Key == VitrineCategory.Emote;
             var label     = ModClassifier.Label(group.Key);
             if (!clickable)
             {
-                var names = group.Select(i => i.Name).Take(2).ToList();
-                var extra = group.Count() - names.Count;
+                var rest = new List<AffectedItem>();
+                foreach (var item in group)
+                {
+                    if (IsCustomizationCategory(group.Key) && CustomizationParser.TryParse(item.Name, out var entry) && entry.GlamourerKey is not null)
+                        DrawCustomizationChip(entry, can, hasIdentity, clan, gender, ref shown);
+                    else
+                        rest.Add(item);
+                }
+
+                if (rest.Count == 0)
+                    continue;
+
+                var names = rest.Select(i => i.Name).Take(2).ToList();
+                var extra = rest.Count - names.Count;
                 var text  = $"{label} · {string.Join(", ", names)}{(extra > 0 ? $" +{extra}" : string.Empty)}";
                 if (shown > 0 && ImGui.GetCursorPosX() + ImGui.CalcTextSize(text).X + 24 * scale < ImGui.GetWindowContentRegionMax().X)
                     ImGui.SameLine();
@@ -655,7 +734,7 @@ public sealed class VitrineWindow : Window, IDisposable
                 using (ImRaii.PushColor(ImGuiCol.ButtonActive, ChipOffBg))
                     ImGui.SmallButton(text);
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip(string.Join("\n", group.Select(i => i.Name)));
+                    ImGui.SetTooltip(string.Join("\n", rest.Select(i => i.Name)));
                 shown++;
                 continue;
             }
@@ -679,6 +758,187 @@ public sealed class VitrineWindow : Window, IDisposable
         }
     }
 
+    private static bool IsCustomizationCategory(VitrineCategory category)
+        => category is VitrineCategory.Hair or VitrineCategory.Face or VitrineCategory.Tail or VitrineCategory.Ears
+            or VitrineCategory.Body or VitrineCategory.Skin;
+
+    /// <summary> One hair / face / tail / ears entry: click applies it through Glamourer when it fits the character. </summary>
+    private void DrawCustomizationChip(CustomizationEntry entry, bool can, bool hasIdentity, int clan, int gender, ref int shown)
+    {
+        var scale   = ImGuiHelpers.GlobalScale;
+        var fits    = hasIdentity && entry.Matches(clan, gender);
+        var enabled = can && fits;
+        var text    = $"{entry.ShortLabel} · {entry.RaceName} {entry.GenderName}";
+        if (shown > 0 && ImGui.GetCursorPosX() + ImGui.CalcTextSize(text).X + 24 * scale < ImGui.GetWindowContentRegionMax().X)
+            ImGui.SameLine();
+        using var itemId = ImRaii.PushId(entry.Name);
+        using (ImRaii.PushColor(ImGuiCol.Button, enabled ? ChipOnBg : ChipOffBg))
+        using (ImRaii.PushColor(ImGuiCol.Text, enabled ? ChipText : MutedText))
+        using (ImRaii.Disabled(!enabled))
+        {
+            if (ImGui.SmallButton(text))
+                SetStatus(_module.Preview.TryOnCustomization(entry));
+        }
+
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(!can
+                ? "Needs Glamourer and a logged-in character."
+                : !fits
+                    ? $"Made for {entry.RaceName} {entry.GenderName}; your character is {CustomizationParser.ClanName(clan)} {(gender == 0 ? "male" : "female")}."
+                    : entry.IsEyes
+                        ? "Click to switch to this face through Glamourer (once, not saved). Pick a base eye colour in the TRY ON row to judge the pack."
+                        : "Click to apply through Glamourer (once, not saved).");
+        shown++;
+    }
+
+    /// <summary> Eye colour swatches (right / left / both) for judging eye packs without opening Glamourer. </summary>
+    private void DrawEyeColorPicker(bool can)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        using (ImRaii.Disabled(!can))
+        {
+            if (ImGui.SmallButton("Eye colour…"))
+                ImGui.OpenPopup("##eyeColour");
+        }
+
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(can
+                ? "Eye packs often need a base eye colour (\"set eyes to white for options 1-10\"). Pick one here without opening Glamourer; applied once, not saved."
+                : "Needs Glamourer and a logged-in character.");
+
+        using var popup = ImRaii.Popup("##eyeColour");
+        if (!popup)
+            return;
+
+        ImGui.TextColored(Color(MutedText), "EYE COLOUR");
+        ImGui.SameLine();
+        ImGui.RadioButton("Both", ref _eyeTarget, 0);
+        ImGui.SameLine();
+        ImGui.RadioButton("Right", ref _eyeTarget, 1);
+        ImGui.SameLine();
+        ImGui.RadioButton("Left", ref _eyeTarget, 2);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Right and left separately for odd eyes.");
+
+        _module.Preview.TryGetPlayerEyeColors(out var right, out var left);
+        var colors = _module.EyeColors.Colors;
+        var size   = new Vector2(18 * scale, 18 * scale);
+        const int perRow = 16;
+        for (var i = 0; i < EyeColorTable.Count; i++)
+        {
+            if (i % perRow != 0)
+                ImGui.SameLine(0, 2 * scale);
+            using var cid = ImRaii.PushId(i);
+            var clicked = colors.Count > i
+                ? ImGui.ColorButton("##c", Color(colors[i]), ImGuiColorEditFlags.NoTooltip | ImGuiColorEditFlags.NoAlpha, size)
+                : ImGui.Button(i.ToString(), new Vector2(32 * scale, 18 * scale));
+            var current = i == right || i == left;
+            if (current)
+                ImGui.GetWindowDrawList().AddRect(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(), Accent, 0, ImDrawFlags.None, 2 * scale);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(current ? $"{i} (current{(i == right && i == left ? string.Empty : i == right ? ", right" : ", left")})" : i.ToString());
+            if (clicked)
+                SetStatus(_module.Preview.TryOnEyeColor(i, _eyeTarget != 2, _eyeTarget != 1));
+        }
+    }
+
+    /// <summary> "Make Glamourer design" for a baseline or variant; disabled with a reason when Glamourer is missing or nothing is equippable. </summary>
+    private void DrawMakeGlamourerDesignButton(ModInformation mod, VitrineDesign design, string label, Vector2 size)
+    {
+        var glamourer = _module.Preview.GlamourerAvailable;
+        var can       = glamourer && _module.Preview.CanMakeGlamourerDesign(design, mod);
+        using (ImRaii.Disabled(!can))
+        {
+            var clicked = size == Vector2.Zero ? ImGui.SmallButton(label) : ImGui.Button(label, size);
+            if (clicked)
+            {
+                var message = _module.Preview.MakeGlamourerDesign(design, mod, out var id);
+                if (id != Guid.Empty)
+                    _lastGlamourerDesign = id;
+                SetStatus(message);
+            }
+        }
+
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(!glamourer
+                ? "Glamourer is not loaded."
+                : !can
+                    ? "Nothing equippable: this mod has no pieces and no hair / face entry fitting your character."
+                    : "Creates a Glamourer design that equips this design's pieces (apply action, else the full set), applies fitting hair / face,\nand carries the mod with these settings as a mod association. Nothing else is applied. Then \"Open in Glamourer\" appears below.");
+    }
+
+    /// <summary> Per-slot toggles and piece pickers of a draft's Apply Action. Null = default: every affected slot, first piece. </summary>
+    private void DrawApplyActionEditor(ModInformation mod, ApplyAction? action, Action<ApplyAction?> set)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        using var id = ImRaii.PushId("apply");
+        ImGui.TextColored(Color(MutedText), "Apply action");
+        var candidates = _module.Preview.ApplyCandidates(mod);
+        if (candidates.Count == 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(Color(MutedText), "· no equippable pieces in this mod");
+            return;
+        }
+
+        if (action is null)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(Color(MutedText), $"· default: every affected slot ({candidates.Count}), first piece each");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Customise"))
+                set(ApplyPlanner.Default(candidates));
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Choose which slots Apply touches and which piece each one equips.");
+            return;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Use default"))
+        {
+            set(null);
+            return;
+        }
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Back to every affected slot with its first piece.");
+
+        foreach (var slot in candidates)
+        {
+            using var slotId = ImRaii.PushId((int)slot.Slot);
+            if (!action.Slots.TryGetValue(slot.Slot, out var choice))
+                action.Slots[slot.Slot] = choice = new ApplySlot { Enabled = false, ItemId = slot.Items[0].ItemId, ItemName = slot.Items[0].Name };
+
+            var enabled = choice.Enabled;
+            if (ImGui.Checkbox(ApplyPlanner.SlotLabel(slot.Slot), ref enabled))
+                choice.Enabled = enabled;
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(enabled ? "Apply equips this slot." : "Apply leaves this slot alone.");
+            ImGui.SameLine(120 * scale);
+            using var disabled = ImRaii.Disabled(!choice.Enabled);
+            var current = choice.ItemId is null && choice.ItemName is null ? "none" : choice.ItemName ?? choice.ItemId?.ToString() ?? "none";
+            ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X);
+            using var combo = ImRaii.Combo("##piece", current);
+            if (!combo)
+                continue;
+
+            foreach (var item in slot.Items)
+            {
+                if (ImGui.Selectable(item.Name, choice.ItemId == item.ItemId))
+                {
+                    choice.ItemId   = item.ItemId;
+                    choice.ItemName = item.Name;
+                }
+            }
+
+            if (ImGui.Selectable("none", choice.ItemId is null && choice.ItemName is null))
+            {
+                choice.ItemId   = null;
+                choice.ItemName = null;
+            }
+        }
+    }
+
     private void DrawBaselineCard(ModInformation mod, VitrineDesign auto)
     {
         var scale = ImGuiHelpers.GlobalScale;
@@ -694,12 +954,13 @@ public sealed class VitrineWindow : Window, IDisposable
         var stored = _module.DesignStore.BaselineFor(mod.ModDirectory);
         if (draft is null)
         {
-            DrawSettingsSummary(mod, stored?.Settings, stored?.Priority ?? 0);
+            DrawSettingsSummary(mod, stored?.Settings, stored?.Priority ?? 0, applyAction: stored?.ApplyAction);
             if (ImGui.SmallButton("Edit baseline"))
                 _baselineDrafts[mod.ModDirectory] = new Baseline
                 {
-                    Priority = stored?.Priority ?? 0,
-                    Settings = stored?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()) ?? DefaultSettingsFor(mod),
+                    Priority    = stored?.Priority ?? 0,
+                    Settings    = stored?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()) ?? DefaultSettingsFor(mod),
+                    ApplyAction = VitrineDesignStore.CloneAction(stored?.ApplyAction),
                 };
             return;
         }
@@ -711,6 +972,7 @@ public sealed class VitrineWindow : Window, IDisposable
 
         draft.Settings ??= DefaultSettingsFor(mod);
         DrawSettingsEditor(mod, draft.Settings);
+        DrawApplyActionEditor(mod, draft.ApplyAction, a => draft.ApplyAction = a);
 
         if (ImGui.SmallButton("Save"))
         {
@@ -740,6 +1002,7 @@ public sealed class VitrineWindow : Window, IDisposable
             Enabled  = state?.Enabled ?? true,
             Priority = state?.Priority ?? 0,
             Settings = state?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()) ?? DefaultSettingsFor(mod),
+            ApplyAction = VitrineDesignStore.CloneAction(variant.ApplyAction),
         };
 
     private void DrawVariantCard(ModInformation mod, VitrineDesign variant)
@@ -757,7 +1020,7 @@ public sealed class VitrineWindow : Window, IDisposable
             ImGui.TextColored(Color(MutedText), "Variant");
             if (_module.DesignStore.IsOrphan(variant))
                 ImGui.TextColored(Color(WarnText), "mod missing");
-            DrawSettingsSummary(mod, state?.Settings, state?.Priority ?? 0, state?.Enabled ?? true);
+            DrawSettingsSummary(mod, state?.Settings, state?.Priority ?? 0, state?.Enabled ?? true, variant.ApplyAction);
             if (ImGui.SmallButton("Edit"))
             {
                 _editingVariant = variant.Id;
@@ -775,6 +1038,11 @@ public sealed class VitrineWindow : Window, IDisposable
             if (ImGui.SmallButton("Preview"))
                 SetStatus(_module.PreviewDesign(variant));
             ImGui.SameLine();
+            if (ImGui.SmallButton("Apply"))
+                SetStatus(_module.ApplyDesign(variant));
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip($"Enables the mod with this variant's settings and equips exactly: {ApplyPlanner.Describe(variant.ApplyAction)}. No guessing, no emotes.");
+            ImGui.SameLine();
             if (ImGui.SmallButton("Delete") && ImGui.GetIO().KeyCtrl)
             {
                 _module.DeleteVariant(variant.Id);
@@ -783,6 +1051,7 @@ public sealed class VitrineWindow : Window, IDisposable
 
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip("Hold Ctrl and click to delete.");
+            DrawMakeGlamourerDesignButton(mod, variant, "Glamourer design", Vector2.Zero);
             return;
         }
 
@@ -800,9 +1069,11 @@ public sealed class VitrineWindow : Window, IDisposable
         ImGui.SetNextItemWidth(100 * scale);
         ImGui.InputInt("Priority", ref draft.Priority);
         DrawSettingsEditor(mod, draft.Settings);
+        DrawApplyActionEditor(mod, draft.ApplyAction, a => draft.ApplyAction = a);
         if (ImGui.SmallButton("Save"))
         {
-            _module.UpdateVariant(variant.Id, draft.Name, draft.Enabled, draft.Priority, draft.Settings);
+            _module.UpdateVariant(variant.Id, draft.Name, draft.Enabled, draft.Priority, draft.Settings,
+                applyAction: draft.ApplyAction, clearApplyAction: draft.ApplyAction is null);
             _editingVariant = null;
             _variantDrafts.Remove(variant.Id);
             SetStatus("Variant saved.");
@@ -816,7 +1087,7 @@ public sealed class VitrineWindow : Window, IDisposable
         }
     }
 
-    private void DrawSettingsSummary(ModInformation mod, Dictionary<string, List<string>>? settings, int priority, bool enabled = true)
+    private void DrawSettingsSummary(ModInformation mod, Dictionary<string, List<string>>? settings, int priority, bool enabled = true, ApplyAction? applyAction = null)
     {
         var parts = new List<string>();
         if (!enabled)
@@ -828,6 +1099,8 @@ public sealed class VitrineWindow : Window, IDisposable
         else
             foreach (var (group, options) in settings.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
                 parts.Add(options.Count == 0 ? $"{group}: none" : $"{group}: {string.Join(", ", options)}");
+        if (applyAction is not null)
+            parts.Add($"apply: {ApplyPlanner.Describe(applyAction)}");
         ImGui.PushTextWrapPos();
         ImGui.TextColored(Color(MutedText), string.Join(" · ", parts));
         ImGui.PopTextWrapPos();
@@ -1284,6 +1557,7 @@ public sealed class VitrineWindow : Window, IDisposable
         public bool Enabled = true;
         public int Priority;
         public Dictionary<string, List<string>> Settings = new();
+        public ApplyAction? ApplyAction;
     }
 
     /// <summary> Snapshot of collection assignments for the Collections tab. Built on demand, cheap. </summary>
