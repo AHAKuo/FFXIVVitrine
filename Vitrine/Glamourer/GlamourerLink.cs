@@ -80,6 +80,8 @@ public sealed class GlamourerLink : IDisposable
     /// When Lamina holds the state locked, Glamourer answers InvalidKey; the call is then retried with Lamina's well-known
     /// key (<see cref="VitrineConstants.LaminaGlamourerKey"/>) so try-ons keep working alongside Lamina.
     /// </summary>
+    private static readonly byte[] NoStains = { 0, 0 };
+
     public GlamourerApiEc SetItem(int objectIndex, ApiEquipSlot slot, ulong itemId)
     {
         if (!_available)
@@ -87,14 +89,15 @@ public sealed class GlamourerLink : IDisposable
 
         try
         {
-            var code = _setItem.Invoke(objectIndex, slot, itemId, Array.Empty<byte>(), 0, ApplyFlag.Once);
+            // Glamourer reads both stain slots from the list it is given (an empty list throws inside the call); 0 = no dye.
+            var code = _setItem.Invoke(objectIndex, slot, itemId, NoStains, 0, ApplyFlag.Once);
             if (code == GlamourerApiEc.InvalidKey)
-                code = _setItem.Invoke(objectIndex, slot, itemId, Array.Empty<byte>(), VitrineConstants.LaminaGlamourerKey, ApplyFlag.Once);
+                code = _setItem.Invoke(objectIndex, slot, itemId, NoStains, VitrineConstants.LaminaGlamourerKey, ApplyFlag.Once);
             return code;
         }
         catch (Exception ex)
         {
-            _log.Warning($"Vitrine: Glamourer SetItem failed: {ex.Message}");
+            _log.Warning($"Vitrine: Glamourer SetItem failed: {(ex.InnerException ?? ex).GetType().Name}: {(ex.InnerException ?? ex).Message}");
             return GlamourerApiEc.UnknownError;
         }
     }
