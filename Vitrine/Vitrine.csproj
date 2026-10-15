@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.1.0.0</Version>
+    <Author>ahadev</Author>
+    <Name>Vitrine</Name>
+    <Punchline>Browse, organise and try on your Penumbra mods without touching Penumbra.</Punchline>
+    <Description>Vitrine catalogues every Penumbra mod by what it changes, shows it as a card with its display photo, and lets you preview it on your character: the mod is enabled, a full set of its gear is equipped through Glamourer and replaced emotes are played.
+
+• Mods organised by category (outfits, hair, faces, animations, VFX, ...) with search and filters.
+• Display photos pulled from the mod folder or the mod's page.
+• Baseline settings and variants per mod, previewable in one click.
+• Read-only overview of your collections and who uses them.
+• Exposes its designs over IPC so Lamina can layer them into virtual designs.</Description>
+    <Tags>penumbra;mods;browser;preview;glamourer;try-on;organizer</Tags>
+    <RepoUrl>https://github.com/AHAKuo/FFXIVVitrine</RepoUrl>
+    <IconUrl>https://raw.githubusercontent.com/AHAKuo/FFXIVVitrine/main/images/icon.png</IconUrl>
+  </PropertyGroup>
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Penumbra.Api\Penumbra.Api.csproj" />
+    <ProjectReference Include="..\Glamourer.Api\Glamourer.Api.csproj" />
+    <ProjectReference Include="..\Luna\Luna\Luna.csproj" />
+  </ItemGroup>
+</Project>

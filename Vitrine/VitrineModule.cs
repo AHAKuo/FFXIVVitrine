@@ -1,0 +1,276 @@
+using System.IO;
+using Dalamud.Interface.Windowing;
+using Dalamud.Plugin;
+using Dalamud.Plugin.Services;
+using Vitrine.Catalog;
+using Vitrine.Designs;
+using Vitrine.Glamourer;
+using Vitrine.Penumbra;
+using Vitrine.Photos;
+using Vitrine.TryOn;
+using Vitrine.UI;
+
+namespace Vitrine;
+
+/// <summary>
+/// Heart of the plugin: owns the Penumbra reader, the Glamourer link, the mod catalog, the design store, photos,
+/// previews, settings and the window. <see cref="Plugin"/> constructs one instance and disposes it on unload.
+/// </summary>
+public sealed class VitrineModule : IDisposable
+{
+    private static readonly TimeSpan CollectionRefreshInterval = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan CollectionFactsInterval   = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan DesignRebuildInterval     = TimeSpan.FromSeconds(1);
+
+    private readonly IPluginLog _log;
+    private readonly IFramework _framework;
+    private readonly WindowSystem _windowSystem = new("Vitrine");
+    private readonly VitrineWindow _window;
+    private readonly string _settingsPath;
+
+    private DateTime _nextCollectionRefresh = DateTime.MinValue;
+    private DateTime _nextCollectionFacts = DateTime.MinValue;
+    private DateTime _nextDesignRebuild = DateTime.MinValue;
+    private bool _collectionRefreshPending;
+    private bool _designsDirty;
+
+    public VitrineModule(IDalamudPluginInterface pi, IPluginLog log, IFramework framework, ITextureProvider textures,
+        IDataManager data, IClientState clientState, IObjectTable objects, ICondition condition, string dataDirectory)
+    {
+        _log       = log;
+        _framework = framework;
+
+        DataDirectory = dataDirectory;
+        Directory.CreateDirectory(dataDirectory);
+        _settingsPath = Path.Combine(dataDirectory, "settings.json");
+        Settings      = VitrineSettings.Load(_settingsPath, m => log.Warning(m));
+
+        Reader      = new PenumbraReader(pi, log);
+        Glamourer   = new GlamourerLink(pi, log);
+        Catalog     = new ModCatalog(Reader, Path.Combine(dataDirectory, "mods.json"), m => log.Warning(m), m => log.Debug(m));
+        DesignStore = new VitrineDesignStore(Path.Combine(dataDirectory, "designs.json"), m => log.Warning(m));
+        Photos      = new ModPhotoService(
+            Path.Combine(dataDirectory, "photos"),
+            new HttpPhotoHttp(),
+            () => Reader.GetModRootDirectory(),
+            () => Settings.FetchPhotosFromModPages,
+            m => log.Warning(m),
+            m => log.Debug(m));
+        Preview = new PreviewService(Reader, Glamourer, new ItemResolver(data, log), new EmotePlayer(data, condition, clientState, log),
+            clientState, objects, framework, log);
+
+        Catalog.LoadCache();
+        DesignStore.Load();
+        DesignStore.UpdateFromCatalog(Catalog.Mods);
+
+        Catalog.Changed               += OnCatalogChanged;
+        DesignStore.Changed           += OnDesignsChanged;
+        Reader.AvailabilityChanged    += OnAvailabilityChanged;
+        Glamourer.AvailabilityChanged += OnAvailabilityChanged;
+        Reader.ModAdded               += dir => Catalog.QueueMod(dir);
+        Reader.ModDeleted             += Catalog.RemoveMod;
+        Reader.ModMoved               += Catalog.MoveMod;
+
+        _window = new VitrineWindow(this, textures);
+        _windowSystem.AddWindow(_window);
+        _framework.Update += OnUpdate;
+
+        if (Reader.Available)
+        {
+            Catalog.BeginFullScan();
+            _collectionRefreshPending = true;
+        }
+    }
+
+    /// <summary> Where settings, caches, designs and photos live. </summary>
+    public string DataDirectory { get; }
+
+    /// <summary> The Penumbra reading layer. </summary>
+    public IPenumbraReader Reader { get; }
+
+    /// <summary> The Glamourer link used for try-on. </summary>
+    public GlamourerLink Glamourer { get; }
+
+    /// <summary> The mod catalog. </summary>
+    public ModCatalog Catalog { get; }
+
+    /// <summary> Baselines, variants and auto designs. </summary>
+    public VitrineDesignStore DesignStore { get; }
+
+    /// <summary> Window settings. </summary>
+    public VitrineSettings Settings { get; }
+
+    /// <summary> Display photos per mod (local file or downloaded from the mod page). </summary>
+    public ModPhotoService Photos { get; }
+
+    /// <summary> Previews, try-on and emote playback. </summary>
+    public PreviewService Preview { get; }
+
+    /// <summary> False while Penumbra is unavailable. </summary>
+    public bool Available
+        => Reader.Available;
+
+    /// <summary> All designs (auto + variants), stable order. </summary>
+    public IReadOnlyList<VitrineDesign> Designs
+        => DesignStore.Designs;
+
+    /// <summary> Looks a design up by id. </summary>
+    public VitrineDesign? GetDesign(Guid id)
+        => DesignStore.Get(id);
+
+    /// <summary> Raised on the framework thread when designs, the catalog or plugin availability changed. </summary>
+    public event Action? CatalogChanged;
+
+    /// <summary> Rescans; <paramref name="force"/> ignores the per-mod source stamps. </summary>
+    public void Refresh(bool force = false)
+    {
+        Reader.Probe();
+        Glamourer.Probe();
+        if (!Reader.Available)
+            return;
+
+        Catalog.BeginFullScan(force);
+        _collectionRefreshPending = true;
+    }
+
+    /// <summary> Asks for a per-collection state refresh on the next update (throttled). </summary>
+    public void RequestCollectionRefresh()
+        => _collectionRefreshPending = true;
+
+    /// <summary> Toggles the window. </summary>
+    public void ToggleWindow()
+        => _window.Toggle();
+
+    /// <summary> null toggles, true opens, false closes. </summary>
+    public void SetWindowOpen(bool? open)
+    {
+        if (open is null)
+            _window.Toggle();
+        else
+            _window.IsOpen = open.Value;
+    }
+
+    /// <summary> Draw hook for UiBuilder.Draw. </summary>
+    public void Draw()
+        => _windowSystem.Draw();
+
+    /// <summary> Persists the settings file. </summary>
+    public void SaveSettings()
+        => Settings.Save(_settingsPath, m => _log.Warning(m));
+
+    // ---- design edits (all raise CatalogChanged) -----------------------------------------------------------------
+
+    /// <summary> Stores (or clears with null) the baseline of a mod's auto design. </summary>
+    public void SetBaseline(string modDirectory, Baseline? baseline)
+        => DesignStore.SetBaseline(modDirectory, baseline);
+
+    /// <summary> Creates a variant from a mod's auto design. </summary>
+    public Guid CreateVariant(string modDirectory, string name)
+        => DesignStore.CreateVariant(modDirectory, name);
+
+    /// <summary> Updates a variant. </summary>
+    public bool UpdateVariant(Guid id, string? name = null, bool? enabled = null, int? priority = null, Dictionary<string, List<string>>? settings = null, bool clearSettings = false)
+        => DesignStore.UpdateVariant(id, name, enabled, priority, settings, clearSettings);
+
+    /// <summary> Deletes a variant. </summary>
+    public bool DeleteVariant(Guid id)
+        => DesignStore.DeleteVariant(id);
+
+    // ---- preview -------------------------------------------------------------------------------------------------
+
+    /// <summary> Shows the design on the player: mod enabled + redraw + full-set try-on + replaced emote. </summary>
+    public string PreviewDesign(VitrineDesign design)
+    {
+        var info    = design.Mods.Count > 0 ? Catalog.Get(design.Mods[0].ModDirectory) : null;
+        var message = Preview.PreviewDesign(design, info);
+        RequestCollectionRefresh();
+        return message;
+    }
+
+    /// <summary> IPC entry: preview by id. </summary>
+    public string PreviewDesign(Guid id)
+        => GetDesign(id) is { } design ? PreviewDesign(design) : "Unknown design.";
+
+    /// <summary> Removes a previewed mod's temporary setting from the player. </summary>
+    public string ClearPreview(string modDirectory)
+    {
+        var message = Preview.ClearPreview(modDirectory);
+        RequestCollectionRefresh();
+        return message;
+    }
+
+    // ---- internals -----------------------------------------------------------------------------------------------
+
+    private void OnUpdate(IFramework framework)
+    {
+        Catalog.Tick();
+        Photos.Tick();
+
+        var now = DateTime.UtcNow;
+        if (_designsDirty && (!Catalog.IsScanning || now >= _nextDesignRebuild))
+        {
+            _designsDirty      = false;
+            _nextDesignRebuild = now + DesignRebuildInterval;
+            DesignStore.UpdateFromCatalog(Catalog.Mods);
+            if (!Catalog.IsScanning)
+                _collectionRefreshPending = true;
+        }
+
+        if (_window.IsOpen && now >= _nextCollectionFacts)
+        {
+            _nextCollectionFacts = now + CollectionFactsInterval;
+            _window.RefreshCollectionFacts();
+        }
+
+        if (!Catalog.IsScanning && (_collectionRefreshPending || (_window.IsOpen && now >= _nextCollectionRefresh)))
+        {
+            _collectionRefreshPending = false;
+            _nextCollectionRefresh    = DateTime.UtcNow + CollectionRefreshInterval;
+            if (Reader.Available)
+            {
+                Catalog.RefreshCollectionStates();
+                _window.OnCollectionStatesRefreshed();
+            }
+        }
+    }
+
+    /// <summary> Catalog ticks can fire every frame during a scan; the design rebuild is throttled in <see cref="OnUpdate"/>. </summary>
+    private void OnCatalogChanged()
+        => _designsDirty = true;
+
+    private void OnDesignsChanged()
+        => CatalogChanged?.Invoke();
+
+    private void OnAvailabilityChanged()
+    {
+        if (Reader.Available && !Catalog.IsScanning)
+        {
+            Catalog.BeginFullScan();
+            _collectionRefreshPending = true;
+        }
+
+        CatalogChanged?.Invoke();
+    }
+
+    public void Dispose()
+    {
+        _framework.Update -= OnUpdate;
+        try
+        {
+            if (Preview.PreviewedMods.Count > 0)
+                Preview.ClearAllPreviews();
+        }
+        catch (Exception ex)
+        {
+            _log.Warning($"Vitrine: clearing previews on unload failed: {ex.Message}");
+        }
+
+        Catalog.SaveCacheIfDirty();
+        SaveSettings();
+        _windowSystem.RemoveAllWindows();
+        _window.Dispose();
+        Photos.Dispose();
+        Glamourer.Dispose();
+        Reader.Dispose();
+    }
+}
