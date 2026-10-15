@@ -3,6 +3,8 @@ Vitrine is a Dalamud plugin that shows your Penumbra mods the way a shop window 
 
 Dump mods into Penumbra like a mad man; Vitrine keeps them findable.
 
+![Vitrine: the Mods tab with its card grid and details panel](images/github-sample.png)
+
 ## Requires
 - Penumbra.
 
