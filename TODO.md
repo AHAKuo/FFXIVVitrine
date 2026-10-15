@@ -1,5 +1,11 @@
 # TODO
 
+## V1 implemented (2026-10-15, inside Lamina before the split)
+- [x] Mod catalog with classification, incremental scan, cache.
+- [x] Auto designs per mod (deterministic ids), baselines, variants, `designs.json`.
+- [x] `/vit` window: Mods (card grid + details), Collections, Settings, About.
+- [x] Own plugin project, config directory and repo (`AHAKuo/FFXIVVitrine`); IPC for Lamina (`docs/IPC.md`); preview writes with Vitrine's own Penumbra key; released v0.1.0 and registered in ahadevtools.
+
 ## Apply Action (Vitrine special)
 An **Apply Action** is configured per design, in the baseline settings and in each variant. It is different from
 Try-on: Try-on guesses one item per slot to show the mod; the Apply Action is the user's explicit choice of which
@@ -45,6 +51,7 @@ character only shows it when wearing that hairstyle.
       plain Face / Hair handling.
 
 ## Verify in game
+- [ ] Mod manager adapter returns metadata (else meta.json fallback); changed-item value types classify correctly; images load.
 - [ ] Photo fetching against real mod pages (XIV Mod Archive, Heliosphere); JPG/PNG decoding.
 - [ ] `ExecuteEmote` argument semantics for emote previews.
 - [ ] Penumbra accepting an empty settings dictionary as "defaults" for previews.
