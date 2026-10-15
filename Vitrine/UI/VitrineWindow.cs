@@ -735,6 +735,16 @@ public sealed class VitrineWindow : Window, IDisposable
             _baselineDrafts.Remove(mod.ModDirectory);
     }
 
+    /// <summary> Editable copy of a variant's current values. </summary>
+    private StoredVariantDraft NewVariantDraft(ModInformation mod, VitrineDesign variant, VitrineModState? state)
+        => new()
+        {
+            Name     = variant.Name,
+            Enabled  = state?.Enabled ?? true,
+            Priority = state?.Priority ?? 0,
+            Settings = state?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()) ?? DefaultSettingsFor(mod),
+        };
+
     private void DrawVariantCard(ModInformation mod, VitrineDesign variant)
     {
         var scale = ImGuiHelpers.GlobalScale;
@@ -754,13 +764,7 @@ public sealed class VitrineWindow : Window, IDisposable
             if (ImGui.SmallButton("Edit"))
             {
                 _editingVariant = variant.Id;
-                _variantDrafts[variant.Id] = new StoredVariantDraft
-                {
-                    Name     = variant.Name,
-                    Enabled  = state?.Enabled ?? true,
-                    Priority = state?.Priority ?? 0,
-                    Settings = state?.Settings?.ToDictionary(kv => kv.Key, kv => kv.Value.ToList()) ?? DefaultSettingsFor(mod),
-                };
+                _variantDrafts[variant.Id] = NewVariantDraft(mod, variant, state);
             }
 
             ImGui.SameLine();
@@ -785,7 +789,13 @@ public sealed class VitrineWindow : Window, IDisposable
             return;
         }
 
-        var draft = _variantDrafts[variant.Id];
+        // "+ Variant" switches to edit mode without going through the Edit button, so build the draft on demand.
+        if (!_variantDrafts.TryGetValue(variant.Id, out var draft))
+        {
+            draft = NewVariantDraft(mod, variant, state);
+            _variantDrafts[variant.Id] = draft;
+        }
+
         ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X);
         ImGui.InputText("##name", ref draft.Name, 128);
         ImGui.Checkbox("Enabled", ref draft.Enabled);
