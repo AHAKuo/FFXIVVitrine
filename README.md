@@ -36,6 +36,9 @@ Dump mods into Penumbra like a mad man; Vitrine keeps them findable.
 - **Collections tab:** read-only overview of your collections, who is assigned to them and how many mods each enables.
 - Vitrine never changes your collection assignments or mod folders. Previews are temporary settings and are removed when the window closes or the plugin unloads; only Enable / Disable writes a permanent mod setting, and only into the collection your character uses.
 
+## Important to know
+- **Large mod libraries take a while to fill with photos.** A mod with an image in its folder shows it at once. A mod without one gets its photo from its mod page, and those lookups are deliberately slow: at most two run at a time, with a short pause between page fetches, so Heliosphere, XIV Mod Archive and the others are not hammered. With hundreds or thousands of mods that have no local image, expect the "fetching photo" placeholders to keep filling in for a good while after the first open. It happens once: every photo found is cached, and later opens are instant. Mods whose page has no usable image keep their category placeholder.
+
 ## Commands
 - `/vit` opens or closes the window.
 - `/vit rescan` rescans changed mods; `/vit rescan all` rescans everything.
