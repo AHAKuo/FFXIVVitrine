@@ -22,7 +22,17 @@ Dump mods into Penumbra like a mad man; Vitrine keeps them findable.
   - **Enable / Disable:** enables the mod in your collection with the card's priority and options, like ticking it in Penumbra, and marks the card active (green). Enabling another card of the same mod switches the settings over.
   - **Glamourer design:** creates a Glamourer design from the card (its pieces, fitting hair / face, and the mod with its settings attached) straight into Glamourer's list.
   - **Edit:** priority, option groups and the **affected slots**: which equipment slots this card equips, and which piece when the mod offers several. Surface level only (the mod still replaces everything Penumbra says it does); it decides what Preview and the Glamourer design equip, and what Lamina layers in. **Clear other slots** empties every gear slot the card does not fill (weapons stay), so an outfit worn before does not bleed through. Click any affected item chip to equip just that piece.
+
+![Vitrine: trying on an outfit. Before, the mod and its design card, the editor with option groups, affected slots and Clear other slots, and the preview](images/outfit-tryon.png)
+
+> **Body mods are not enabled for you.** Previewing or enabling an outfit does not switch on the body it was made for (Bibo+, Gen3, TBSE, YAB and so on). A mod's requirements are not listed in the mod itself, so Vitrine cannot know them. If the outfit needs a body your collection does not have enabled, you will see an invisible or broken body: enable the body mod in Penumbra first, then try the outfit.
+
 - **Hair, face, tail and eye mods:** customization entries ("Au Ra Female Hair 194") are chips; the ones made for your race and gender are clickable and switch you to that hairstyle, face or tail through Glamourer, once, unsaved. Entries for other races are greyed out with the reason. Eye packs get an "Eye colour…" picker (right / left / both) so a pack can be judged without opening Glamourer.
+
+![Vitrine: trying on a hair mod. Before, the mod's details panel with its Preview button, and after](images/hair-tryon.png)
+
+![Vitrine: trying an emote mod. The mod panel with its Preview and Play replaced emote buttons, and the dance playing on the character](images/emote-tryon.png)
+
 - **Collections tab:** read-only overview of your collections, who is assigned to them and how many mods each enables.
 - Vitrine never changes your collection assignments or mod folders. Previews are temporary settings and are removed when the window closes or the plugin unloads; only Enable / Disable writes a permanent mod setting, and only into the collection your character uses.
 
