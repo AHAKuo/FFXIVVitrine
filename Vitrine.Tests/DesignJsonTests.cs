@@ -1,6 +1,7 @@
 using Newtonsoft.Json.Linq;
 using Vitrine;
 using Vitrine.Ipc;
+using Vitrine.TryOn;
 using Xunit;
 
 namespace Vitrine.Tests;
@@ -69,6 +70,45 @@ public class DesignJsonTests
         Assert.NotNull(single);
         Assert.Equal("Cowkini", single!.Mods[0].ModName);
         Assert.Equal(new[] { "Tiger stripes" }, single.Mods[0].Settings!["Extras"]);
+    }
+
+    [Fact]
+    public void Customizations_AreEmittedForEveryRaceAndGender_AndParseBack()
+    {
+        var design = new VitrineDesign
+        {
+            Name     = "Hair 194",
+            Category = VitrineCategory.Hair,
+            Mods     = { new VitrineModState { ModDirectory = "Hair194", ModName = "Hair 194" } },
+            Customizations = DesignCustomization.FromAffectedItems(new AffectedItem[]
+            {
+                new(VitrineCategory.Hair, "Customization: Midlander Female Hair 194", null),
+                new(VitrineCategory.Hair, "Customization: Midlander Female Hair 194", null), // duplicate: listed once
+                new(VitrineCategory.Hair, "Customization: Au Ra Female Hair 194", null),
+                new(VitrineCategory.Face, "Customization: Viera Male Face (Ears) 2", null),
+                new(VitrineCategory.Body, "Customization: Midlander Female Body", null),            // no Glamourer key: skipped
+            }),
+        };
+
+        var json = JObject.Parse(DesignJson.Serialize(design));
+        var list = (JArray)json["customizations"]!;
+        Assert.Equal(3, list.Count);
+        Assert.Equal("Midlander", list[0]["race"]!.Value<string>());
+        Assert.Equal(1, list[0]["gender"]!.Value<int>());
+        Assert.Equal("Hairstyle", list[0]["key"]!.Value<string>());
+        Assert.Equal(194, list[0]["value"]!.Value<int>());
+        Assert.Equal("Customization: Midlander Female Hair 194", list[0]["name"]!.Value<string>());
+        Assert.Equal("AuRa", list[1]["race"]!.Value<string>());
+        Assert.Equal("Viera", list[2]["race"]!.Value<string>());
+        Assert.Equal(0, list[2]["gender"]!.Value<int>());
+        Assert.Equal("TailShape", list[2]["key"]!.Value<string>());
+
+        var back = DesignJson.Deserialize(json.ToString())!;
+        Assert.Equal(3, back.Customizations!.Count);
+        Assert.Equal(ModelRace.AuRa, back.Customizations[1].Race);
+        Assert.Equal(194, back.Customizations[1].Value);
+
+        Assert.Equal(JTokenType.Null, JObject.Parse(DesignJson.Serialize(Cowkini()))["customizations"]!.Type);
     }
 
     [Fact]

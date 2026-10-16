@@ -16,7 +16,7 @@ public static class VitrineConstants
     public const int LocalPlayerIndex = 0;
 
     /// <summary> Version of the IPC contract in docs/IPC.md. </summary>
-    public static readonly (int Major, int Minor) IpcVersion = (1, 3);
+    public static readonly (int Major, int Minor) IpcVersion = (1, 4);
 
     /// <summary> Glamourer lock key Lamina uses ("LAMI"). Only used to retry a try-on when Lamina holds the state locked. </summary>
     public const uint LaminaGlamourerKey = 0x4C414D49;

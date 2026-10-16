@@ -84,6 +84,38 @@ public class DesignStorePiecesTests
     }
 
     [Fact]
+    public void HairMods_ExportTheirCustomizations_ForAutoDesignsAndVariants()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"vitrine-{Guid.NewGuid():N}.json");
+        try
+        {
+            var hair = new ModInformation
+            {
+                ModDirectory  = "Hair194",
+                Name          = "Hair 194",
+                Type          = VitrineCategory.Hair,
+                AffectedItems = { new(VitrineCategory.Hair, "Customization: Midlander Female Hair 194", null), new(VitrineCategory.Hair, "Customization: Au Ra Female Hair 194", null) },
+            };
+            var store = new VitrineDesignStore(path, _ => { });
+            store.Load();
+            store.UpdateFromCatalog(new[] { Cowkini(), hair });
+
+            Assert.Empty(store.AutoDesignFor("Cowkini")!.Customizations!);
+            var auto = store.AutoDesignFor("Hair194")!;
+            Assert.Equal(new[] { ModelRace.Midlander, ModelRace.AuRa }, auto.Customizations!.Select(c => c.Race));
+            Assert.All(auto.Customizations, c => Assert.Equal("Hairstyle", c.Key));
+
+            var variant = store.Get(store.CreateVariant("Hair194", "Copy"))!;
+            Assert.Equal(2, variant.Customizations!.Count);
+            Assert.Equal(194, variant.Customizations[1].Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void ActiveDesign_IsStoredPerMod_AndSurvivesReload()
     {
         var path = Path.Combine(Path.GetTempPath(), $"vitrine-{Guid.NewGuid():N}.json");

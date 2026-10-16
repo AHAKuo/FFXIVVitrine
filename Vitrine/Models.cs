@@ -1,4 +1,5 @@
 using Glamourer.Api.Enums;
+using Vitrine.TryOn;
 
 namespace Vitrine;
 
@@ -75,6 +76,54 @@ public sealed class VitrineDesign
     /// to Glamourer or layered in Lamina, so an outfit worn before does not bleed through.
     /// </summary>
     public bool ClearOtherSlots { get; set; }
+
+    /// <summary>
+    /// Every hair / face / tail / ears part the design's mod replaces, for every model race and gender it ships (IPC 1.4).
+    /// Enabling the mod shows nothing unless the character's customize value matches, so consumers (Lamina) set the entry
+    /// fitting the character alongside the mod. Derived from the catalog on every rebuild; null when the mod is unknown.
+    /// </summary>
+    public List<DesignCustomization>? Customizations { get; set; }
+}
+
+/// <summary>
+/// One customization part a design's mod replaces ("Customization: Midlander Female Hair 194"), shared over IPC: visible on a
+/// character of that model race and gender whose Glamourer <see cref="Key"/> customize value is <see cref="Value"/>.
+/// </summary>
+public sealed class DesignCustomization
+{
+    /// <summary> Model race the part is made for (serialised by name: Midlander, AuRa, ...). </summary>
+    public ModelRace Race { get; set; }
+
+    /// <summary> 0 male, 1 female. </summary>
+    public int Gender { get; set; }
+
+    /// <summary> Glamourer customize key: Hairstyle, Face or TailShape. </summary>
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary> The customize value that shows the part. </summary>
+    public int Value { get; set; }
+
+    /// <summary> Penumbra's affected-item name, informational. </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The customizations of a mod's affected items: every parsed entry with a Glamourer key (hair, face, tail, ears; body
+    /// textures have none), the first one per race, gender and key (a mod shipping two faces for the same race lists the first,
+    /// as the try-on applies it).
+    /// </summary>
+    public static List<DesignCustomization> FromAffectedItems(IEnumerable<AffectedItem> items)
+    {
+        var seen   = new HashSet<(ModelRace, int, string)>();
+        var result = new List<DesignCustomization>();
+        foreach (var entry in CustomizationParser.ParseAll(items))
+        {
+            if (entry.GlamourerKey is not { } key || !seen.Add((entry.Race, entry.Gender, key)))
+                continue;
+            result.Add(new DesignCustomization { Race = entry.Race, Gender = entry.Gender, Key = key, Value = entry.Value, Name = entry.Name });
+        }
+
+        return result;
+    }
 }
 
 /// <summary> One resolved piece of a design. </summary>

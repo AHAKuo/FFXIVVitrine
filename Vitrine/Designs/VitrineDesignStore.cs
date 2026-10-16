@@ -243,7 +243,8 @@ public sealed class VitrineDesignStore
                 ApplyAction     = CloneAction(baseline?.ApplyAction),
                 ClearOtherSlots = baseline?.ClearOtherSlots ?? false,
             };
-            design.Pieces = ResolvePieces(mod, design.ApplyAction);
+            design.Pieces         = ResolvePieces(mod, design.ApplyAction);
+            design.Customizations = DesignCustomization.FromAffectedItems(mod.AffectedItems);
             list.Add(design);
             _byId[design.Id]               = design;
             _autoByMod[mod.ModDirectory]   = design;
@@ -273,7 +274,9 @@ public sealed class VitrineDesignStore
                 ApplyAction     = CloneAction(variant.ApplyAction),
                 ClearOtherSlots = variant.ClearOtherSlots,
             };
-            design.Pieces = ResolvePieces(_mods.FirstOrDefault(m => string.Equals(m.ModDirectory, variant.ModDirectory, StringComparison.OrdinalIgnoreCase)), design.ApplyAction);
+            var mod = _mods.FirstOrDefault(m => string.Equals(m.ModDirectory, variant.ModDirectory, StringComparison.OrdinalIgnoreCase));
+            design.Pieces         = ResolvePieces(mod, design.ApplyAction);
+            design.Customizations = mod is null ? null : DesignCustomization.FromAffectedItems(mod.AffectedItems);
             list.Add(design);
             _byId[design.Id] = design;
         }
