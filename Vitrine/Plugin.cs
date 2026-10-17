@@ -48,6 +48,9 @@ public sealed class Plugin : IDalamudPlugin
             HelpMessage = "Open Vitrine. '/vit rescan' rescans your mods, '/vit help' lists commands.",
         });
 
+        // Dalamud hides plugin windows in group pose and cutscenes by default; trying on looks while posing is the point.
+        PluginInterface.UiBuilder.DisableGposeUiHide    = true;
+        PluginInterface.UiBuilder.DisableCutsceneUiHide = true;
         PluginInterface.UiBuilder.Draw         += _module.Draw;
         PluginInterface.UiBuilder.OpenMainUi   += OpenWindow;
         PluginInterface.UiBuilder.OpenConfigUi += OpenWindow;
