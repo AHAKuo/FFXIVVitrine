@@ -51,6 +51,7 @@ public sealed class VitrineModule : IDisposable
         Lamina      = new LaminaLink(pi, log);
         Catalog     = new ModCatalog(Reader, Path.Combine(dataDirectory, "mods.json"), m => log.Warning(m), m => log.Debug(m));
         var items   = new ItemResolver(data, log);
+        Items       = items;
         DesignStore = new VitrineDesignStore(Path.Combine(dataDirectory, "designs.json"), m => log.Warning(m), items);
         Photos      = new ModPhotoService(
             Path.Combine(dataDirectory, "photos"),
@@ -103,6 +104,9 @@ public sealed class VitrineModule : IDisposable
 
     /// <summary> Baselines, variants and auto designs. </summary>
     public VitrineDesignStore DesignStore { get; }
+
+    /// <summary> Name to equippable game item lookup, shared by designs, previews and the Mods tab slot filter. </summary>
+    public IItemResolver Items { get; }
 
     /// <summary> Window settings. </summary>
     public VitrineSettings Settings { get; }

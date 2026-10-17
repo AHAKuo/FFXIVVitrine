@@ -37,6 +37,7 @@ public sealed class VitrineWindow : Window, IDisposable
     private string _search = string.Empty;
     private VitrineCategory? _categoryFilter;
     private StateFilter _stateFilter = StateFilter.Any;
+    private EquipSlotFlags _slotFilter = EquipSlotFlags.None;
     private string? _selectedMod;
     private string _statusMessage = string.Empty;
     private DateTime _statusUntil = DateTime.MinValue;
@@ -175,7 +176,7 @@ public sealed class VitrineWindow : Window, IDisposable
         var scale = ImGuiHelpers.GlobalScale;
 
         // Filter row.
-        ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 330 * scale);
+        ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 480 * scale);
         ImGui.InputTextWithHint("##vitSearch", "Search mods, authors, affected items...", ref _search, 256);
         ImGui.SameLine();
         ImGui.SetNextItemWidth(170 * scale);
@@ -199,6 +200,10 @@ public sealed class VitrineWindow : Window, IDisposable
                     if (ImGui.Selectable(StateLabel(state), state == _stateFilter))
                         _stateFilter = state;
         }
+
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(150 * scale);
+        DrawSlotFilter();
 
         // Category chips.
         DrawChip("All", _categoryFilter is null, () => _categoryFilter = null);
@@ -242,12 +247,34 @@ public sealed class VitrineWindow : Window, IDisposable
         }
     }
 
+    /// <summary> Multi-select combo of equipment slots: a mod is shown when it affects any ticked slot. </summary>
+    private void DrawSlotFilter()
+    {
+        using var combo = ImRaii.Combo("##vitSlots", $"Slots: {SlotFilter.Summary(_slotFilter)}");
+        if (!combo)
+            return;
+
+        foreach (var flag in SlotFilter.All)
+        {
+            var ticked = _slotFilter.HasFlag(flag);
+            if (ImGui.Checkbox(SlotFilter.Label(flag), ref ticked))
+                _slotFilter = ticked ? _slotFilter | flag : _slotFilter & ~flag;
+        }
+
+        if (_slotFilter == EquipSlotFlags.None)
+            return;
+
+        ImGui.Separator();
+        if (ImGui.Selectable("Clear"))
+            _slotFilter = EquipSlotFlags.None;
+    }
+
     private IEnumerable<VitrineCategory> PresentCategories()
         => _module.Catalog.Mods.Select(m => m.Type).Distinct().OrderBy(c => c);
 
     private void RefreshVisibleIfNeeded()
     {
-        var key = $"{_search}|{_categoryFilter}|{_stateFilter}|{_module.Settings.Sort}|{_module.Settings.ShowUnsorted}";
+        var key = $"{_search}|{_categoryFilter}|{_stateFilter}|{(int)_slotFilter}|{_module.Settings.Sort}|{_module.Settings.ShowUnsorted}";
         if (_visibleVersion == _catalogVersion && key == _lastFilterKey)
             return;
 
@@ -262,6 +289,11 @@ public sealed class VitrineWindow : Window, IDisposable
             query = query.Where(m => m.Type == cat);
         if (_stateFilter != StateFilter.Any)
             query = query.Where(m => IsOnForYou(m, yours) == (_stateFilter == StateFilter.OnForYou));
+        if (_slotFilter != EquipSlotFlags.None)
+        {
+            var wanted = _slotFilter;
+            query = query.Where(m => SlotFilter.Matches(wanted, m.AffectedItems, _module.Items));
+        }
         if (!string.IsNullOrWhiteSpace(_search))
         {
             var s = _search.Trim();

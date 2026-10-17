@@ -13,7 +13,7 @@ Dump mods into Penumbra like a mad man; Vitrine keeps them findable.
 - Lamina (uses Vitrine designs as layers in its virtual designs, see below).
 
 ## Features
-- **Mods tab:** a card grid of every mod, classified by category (outfits, accessories, hair, face, body, skin, animations, emotes, VFX, SFX, UI, minions, mounts, housing, NPCs), with search, category chips, sort and an on/off filter.
+- **Mods tab:** a card grid of every mod, classified by category (outfits, accessories, hair, face, body, skin, animations, emotes, VFX, SFX, UI, minions, mounts, housing, NPCs), with search, category chips, sort, an on/off filter and an equipment slot filter (tick any slots, e.g. Hands to find gloves).
 - **Display photos:** taken from the mod folder when it has one (PNG, JPG or WebP, so Heliosphere covers show), otherwise fetched once from the mod's page (its link-preview image) and cached. A file the game cannot decode is skipped and the next source is tried.
 - **Details panel:** author, version, mod page, a collapsible list of what the mod affects (grouped by category; its open state is remembered), its state in your collections, and the designs made from it.
 - **Vitrine designs:** every mod gets an auto design with the baseline option settings you choose; variants keep the same mod with different options.
